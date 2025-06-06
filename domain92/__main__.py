@@ -1,166 +1,167 @@
-from PIL import Image
-from io import BytesIO
+import os
+import sys
 import time
-import requests as req
+import threading
+import subprocess
+import platform
+from io import BytesIO
+from PIL import Image, ImageFilter
+import copy
 import re
 import random
 import string
-from art import *
+import requests as req
 import freedns
-import sys
-import argparse
 import pytesseract
-import copy
-from PIL import ImageFilter
-import os
-import platform
-from importlib.metadata import version
 import lolpython
-import time
+from importlib.metadata import version
 
-parser = argparse.ArgumentParser(
-    description="Automatically creates links for an ip on freedns"
-)
-parser.add_argument(
-    "-v",
-    "--version",
-    action="version",
-    version="domain92 installed with version: " + str(version("domain92")),
-    help="show the installed version of this package (domain92)",
-)
-parser.add_argument("--number", help="number of links to generate", type=int)
-parser.add_argument("--ip", help="ip to use", type=str)
-parser.add_argument("--webhook", help="webhook url, do none to not ask", type=str)
-parser.add_argument(
-    "--proxy", help="use if you get ip blocked.", type=str, default="none"
-)
-parser.add_argument(
-    "--use_tor",
-    help="use a local tor proxy to avoid ip blocking. See wiki for instructions.",
-    action="store_true",
-)
-parser.add_argument(
-    "--silent",
-    help="no output other than showing you the captchas",
-    action="store_true",
-)
-parser.add_argument(
-    "--outfile", help="output file for the domains", type=str, default="domainlist.txt"
-)
-parser.add_argument(
-    "--type", help="type of record to make, default is A", type=str, default="A"
-)
-parser.add_argument(
-    "--pages",
-    help="range of pages to scrape, see readme for more info (default is first ten)",
-    type=str,
-)
-parser.add_argument(
-    "--subdomains",
-    help="comma separated list of subdomains to use, default is random",
-    type=str,
-    default="random",
-)
-parser.add_argument(
-    "--auto",
-    help="uses tesseract to automatically solve the captchas. tesseract is now included, and doesn't need to be installed seperately",
-    action="store_true",
-)
-parser.add_argument("--single_tld", help="only create links for a single tld", type=str)
-args = parser.parse_args()
-ip = args.ip
-if not args.silent:
-    lolpython.lol_py(text2art("domain92"))
-    print("made with <3 by Cbass92")
-    time.sleep(1)
+import tkinter as tk
+from tkinter import filedialog
+from tkinter.scrolledtext import ScrolledText
+from ttkbootstrap import Style
+from ttkbootstrap.constants import *
 
+# ─── Helper: log/output to the ScrolledText widget ─────────────────────────────
 
-def checkprint(input):
-    global args
-    if not args.silent:
-        print(input)
+log_widget = None
 
+def log(msg, style=""):
+    """
+    Append a line to the ScrolledText output. 
+    style is ignored here but could be used to change tag.
+    """
+    global log_widget
+    if not log_widget:
+        return
+    log_widget.configure(state="normal")
+    log_widget.insert(tk.END, msg + "\n")
+    log_widget.see(tk.END)
+    log_widget.configure(state="disabled")
+
+# ─── Tor management ──────────────────────────────────────────────────────────────
+
+tor_process = None
+
+def start_tor():
+    """
+    Launches Tor as a subprocess (must have tor binary in PATH or specify full path).
+    """
+    global tor_process
+    if tor_process is None:
+        # On Windows you might need "tor.exe"; adjust if needed.
+        try:
+            tor_process = subprocess.Popen(
+                ["tor", "--quiet"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            log("[INFO] Tor process started.")
+            # Wait a bit for Tor to initialize
+            time.sleep(5)
+        except FileNotFoundError:
+            log("[ERROR] Tor binary not found. Make sure Tor is installed and in your PATH.")
+    else:
+        log("[INFO] Tor already running.")
+
+def stop_tor():
+    """
+    Terminates the Tor subprocess if it was started.
+    """
+    global tor_process
+    if tor_process:
+        tor_process.terminate()
+        tor_process = None
+        log("[INFO] Tor process stopped.")
+
+# ─── Resource path helper ────────────────────────────────────────────────────────
+
+def resource_path(relative_path):
+    """
+    Get absolute path to resource, whether running as script or PyInstaller bundle.
+    """
+    if getattr(sys, 'frozen', False):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.abspath(relative_path)
+
+# ─── Domain92 logic (mostly unchanged, just reading from GUI controls) ───────────
+
+# We will store “arguments” in a simple namespace object instead of argparse.
+class Args:
+    def __init__(self):
+        self.ip = ""
+        self.number = None
+        self.webhook = ""
+        self.proxy = None
+        self.use_tor = False
+        self.silent = False
+        self.outfile = "domainlist.txt"
+        self.type = "A"
+        self.pages = ""
+        self.subdomains = "random"
+        self.auto = False
+        self.single_tld = ""
+args = Args()
 
 client = freedns.Client()
 
-checkprint("client initialized")
-
-
 def get_data_path():
+    """
+    Determine which Tesseract binary to use based on OS.
+    """
     script_dir = os.path.dirname(__file__)
-    checkprint("checking os")
     if platform.system() == "Windows":
-        filename = os.path.join(script_dir, "data", "windows", "tesseract")
+        filename = os.path.join(script_dir, "data", "windows", "tesseract.exe")
     elif platform.system() == "Linux":
         filename = os.path.join(script_dir, "data", "tesseract-linux")
     else:
-        print("Unsupported OS. This could cause errors with captcha solving.")
+        log("[WARN] Unsupported OS. Captcha-solving may fail.")
         return None
     os.environ["TESSDATA_PREFIX"] = os.path.join(script_dir, "data")
     return filename
 
-
-path = get_data_path()
-if path:
-    pytesseract.pytesseract.tesseract_cmd = path
-    checkprint(f"Using tesseract data file: {path}")
+# Initialize Tesseract path
+tess_path = get_data_path()
+if tess_path:
+    pytesseract.pytesseract.tesseract_cmd = tess_path
+    log(f"[INFO] Using Tesseract at: {tess_path}")
 else:
-    checkprint("No valid tesseract file for this OS.")
+    log("[WARN] No valid Tesseract binary found.")
 
 domainlist = []
 domainnames = []
-checkprint("getting ip list")
-iplist = req.get(
-    "https://raw.githubusercontent.com/sebastian-92/byod-ip/refs/heads/master/byod.json"
-).text
-iplist = eval(iplist)
-
 
 def getpagelist(arg):
     arg = arg.strip()
     if "," in arg:
-        arglist = arg.split(",")
         pagelist = []
-        for item in arglist:
+        for item in arg.split(","):
             if "-" in item:
-                sublist = item.split("-")
-                if len(sublist) == 2:
-                    sp = int(sublist[0])
-                    ep = int(sublist[1])
-                    if sp < 1 or sp > ep:
-                        checkprint("Invalid page range: " + item)
-                        sys.exit()
-                    pagelist.extend(range(sp, ep + 1))
-                else:
-                    checkprint("Invalid page range: " + item)
-                    sys.exit()
+                sp, ep = item.split("-")
+                sp, ep = int(sp), int(ep)
+                if sp < 1 or sp > ep:
+                    log(f"[ERROR] Invalid page range: {item}")
+                    sys.exit(1)
+                pagelist.extend(range(sp, ep + 1))
+            else:
+                pagelist.append(int(item))
         return pagelist
     elif "-" in arg:
-        pagelist = []
-        sublist = arg.split("-")
-        if len(sublist) == 2:
-            sp = int(sublist[0])
-            ep = int(sublist[1])
-            if sp < 1 or sp > ep:
-                checkprint("Invalid page range: " + arg)
-                sys.exit()
-            pagelist.extend(range(sp, ep + 1))
-        else:
-            checkprint("Invalid page range: " + arg)
-            sys.exit()
-        return pagelist
+        sp, ep = arg.split("-")
+        sp, ep = int(sp), int(ep)
+        if sp < 1 or sp > ep:
+            log(f"[ERROR] Invalid page range: {arg}")
+            sys.exit(1)
+        return list(range(sp, ep + 1))
     else:
         return [int(arg)]
-
 
 def getdomains(arg):
     global domainlist, domainnames
     for sp in getpagelist(arg):
-        checkprint("getting page " + str(sp))
+        log(f"[INFO] Getting page {sp}...")
         html = req.get(
-            "https://freedns.afraid.org/domain/registry/?page="
-            + str(sp)
-            + "&sort=2&q=",
+            f"https://freedns.afraid.org/domain/registry/?page={sp}&sort=2&q=",
             headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                 "Accept-Encoding": "gzip, deflate, br",
@@ -169,29 +170,21 @@ def getdomains(arg):
                 "Connection": "keep-alive",
                 "DNT": "1",
                 "Host": "freedns.afraid.org",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
                 "Upgrade-Insecure-Requests": "1",
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-                "sec-ch-ua": '"Not;A=Brand";v="24", "Chromium";v="128"',
-                "sec-ch-ua-platform": "Linux",
+                "User-Agent": "Mozilla/5.0",
             },
         ).text
         pattern = r"<a href=\/subdomain\/edit\.php\?edit_domain_id=(\d+)>([\w.-]+)<\/a>(.+\..+)<td>public<\/td>"
         matches = re.findall(pattern, html)
-        domainnames.extend([match[1] for match in matches])
-        domainlist.extend([match[0] for match in matches])
-        print(domainlist)
+        for match in matches:
+            domainlist.append(match[0])
+            domainnames.append(match[1])
+        log(f"[INFO] Found {len(matches)} domains on page {sp}.")
 
 def find_domain_id(domain_name):
     page = 1
-    ids = []
     html = req.get(
-        "https://freedns.afraid.org/domain/registry/?page="
-        + str(page)
-        + "&q="
-        + domain_name,
+        f"https://freedns.afraid.org/domain/registry/?page={page}&q={domain_name}",
         headers={
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
             "Accept-Encoding": "gzip, deflate, br",
@@ -200,60 +193,40 @@ def find_domain_id(domain_name):
             "Connection": "keep-alive",
             "DNT": "1",
             "Host": "freedns.afraid.org",
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
             "Upgrade-Insecure-Requests": "1",
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-            "sec-ch-ua": '"Not;A=Brand";v="24", "Chromium";v="128"',
-            "sec-ch-ua-platform": "Linux",
+            "User-Agent": "Mozilla/5.0",
         },
     ).text
     pattern = r"<a href=\/subdomain\/edit\.php\?edit_domain_id=([0-9]+)><font color=red>(?:.+\..+)<\/font><\/a>"
     matches = re.findall(pattern, html)
-    if len(matches) > 0:
-        checkprint(f"Found domain ID: {matches[0]}")
-    else:
-        raise Exception("Domain ID not found")
-    return matches[0]
-
-
-
-hookbool = False
-webhook = ""
-if args.subdomains != "random":
-    checkprint("Subdomains set to:")
-    checkprint(args.subdomains.split(","))
-checkprint("ready")
-
+    if matches:
+        log(f"[INFO] Found domain ID: {matches[0]}")
+        return matches[0]
+    raise Exception("Domain ID not found")
 
 def getcaptcha():
     return Image.open(BytesIO(client.get_captcha()))
 
-
 def denoise(img):
     imgarr = img.load()
     newimg = Image.new("RGB", img.size)
-    newimgarr = newimg.load()
+    newarr = newimg.load()
     dvs = []
     for y in range(img.height):
         for x in range(img.width):
-            r = imgarr[x, y][0]
-            g = imgarr[x, y][1]
-            b = imgarr[x, y][2]
+            r, g, b = imgarr[x, y]
             if (r, g, b) == (255, 255, 255):
-                newimgarr[x, y] = (r, g, b)
-            elif ((r + g + b) / 3) == (112):
-                newimgarr[x, y] = (255, 255, 255)
+                newarr[x, y] = (r, g, b)
+            elif ((r + g + b) / 3) == 112:
+                newarr[x, y] = (255, 255, 255)
                 dvs.append((x, y))
             else:
-                newimgarr[x, y] = (0, 0, 0)
+                newarr[x, y] = (0, 0, 0)
 
-    backup = copy.deepcopy(newimg)
-    backup = backup.load()
+    backup = copy.deepcopy(newimg).load()
     for y in range(img.height):
         for x in range(img.width):
-            if newimgarr[x, y] == (255, 255, 255):
+            if newarr[x, y] == (255, 255, 255):
                 continue
             black_neighbors = 0
             for ny in range(max(0, y - 2), min(img.height, y + 2)):
@@ -261,34 +234,23 @@ def denoise(img):
                     if backup[nx, ny] == (0, 0, 0):
                         black_neighbors += 1
             if black_neighbors <= 5:
-                newimgarr[x, y] = (255, 255, 255)
+                newarr[x, y] = (255, 255, 255)
+
     for x, y in dvs:
         black_neighbors = 0
         for ny in range(max(0, y - 2), min(img.height, y + 2)):
             for nx in range(max(0, x - 1), min(img.width, x + 1)):
-                if newimgarr[nx, ny] == (0, 0, 0):
+                if newarr[nx, ny] == (0, 0, 0):
                     black_neighbors += 1
             if black_neighbors >= 5:
-                newimgarr[x, y] = (0, 0, 0)
+                newarr[x, y] = (0, 0, 0)
             else:
-                newimgarr[x, y] = (255, 255, 255)
-    width, height = newimg.size
-    black_pixels = set()
-    for y in range(height):
-        for x in range(width):
-            if newimgarr[x, y] == (0, 0, 0):
-                black_pixels.add((x, y))
+                newarr[x, y] = (255, 255, 255)
 
-    for x, y in list(black_pixels):
-        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in black_pixels:
-                newimgarr[nx, ny] = 0
-    backup = copy.deepcopy(newimg)
-    backup = backup.load()
+    backup = copy.deepcopy(newimg).load()
     for y in range(img.height):
         for x in range(img.width):
-            if newimgarr[x, y] == (255, 255, 255):
+            if newarr[x, y] == (255, 255, 255):
                 continue
             black_neighbors = 0
             for ny in range(max(0, y - 2), min(img.height, y + 2)):
@@ -296,375 +258,341 @@ def denoise(img):
                     if backup[nx, ny] == (0, 0, 0):
                         black_neighbors += 1
             if black_neighbors <= 6:
-                newimgarr[x, y] = (255, 255, 255)
+                newarr[x, y] = (255, 255, 255)
     return newimg
-
 
 def solve(image):
     image = denoise(image)
     text = pytesseract.image_to_string(
-        image.filter(ImageFilter.GaussianBlur(1))
-        .convert("1")
-        .filter(ImageFilter.RankFilter(3, 3)),
+        image.filter(ImageFilter.GaussianBlur(1)).convert("1").filter(ImageFilter.RankFilter(3, 3)),
         config="-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 7",
     )
     text = re.sub(r"[^A-Z]", "", text)
-    checkprint("got text: " + text)
-    if len(text) != 5 and len(text) != 4:
-        checkprint("Retrying with different filters")
+    log(f"[DEBUG] OCR result: {text}")
+    if len(text) not in (4, 5):
+        log("[INFO] Retrying OCR with different filters...")
         text = pytesseract.image_to_string(
-            image.filter(ImageFilter.GaussianBlur(2)).filter(
-                ImageFilter.MedianFilter(3)
-            ),
+            image.filter(ImageFilter.GaussianBlur(2)).filter(ImageFilter.MedianFilter(3)),
             config="-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8",
         )
-        text = re.sub(r"[^A-Za-z]", "", text)
-        checkprint("got text: " + text)
-    if len(text) != 5 and len(text) != 4:
-        checkprint("Retrying with different filters")
+        text = re.sub(r"[^A-Z]", "", text)
+        log(f"[DEBUG] OCR retry: {text}")
+    if len(text) not in (4, 5):
+        log("[INFO] Final OCR attempt...")
         text = pytesseract.image_to_string(
             image,
             config="-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8",
         )
-        text = re.sub(r"[^A-Za-z]", "", text)
-        checkprint("got text: " + text)
-    if len(text) != 5 and len(text) != 4:
-        checkprint("trying different captcha")
-        text = solve(getcaptcha())
+        text = re.sub(r"[^A-Z]", "", text)
+        log(f"[DEBUG] Final OCR: {text}")
+    if len(text) not in (4, 5):
+        log("[WARN] OCR failed, fetching new captcha...")
+        return solve(getcaptcha())
     return text
 
-
 def generate_random_string(length):
-    letters = string.ascii_lowercase
-    return "".join(random.choice(letters) for i in range(length))
-
+    return "".join(random.choice(string.ascii_lowercase) for _ in range(length))
 
 def login():
     while True:
         try:
-            checkprint("getting captcha")
+            log("[INFO] Fetching captcha...")
             image = getcaptcha()
             if args.auto:
-                capcha = solve(image)
-                checkprint("captcha solved (hopefully)")
+                captcha = solve(image)
+                log(f"[INFO] Captcha solved: {captcha}")
             else:
-                checkprint("showing captcha")
+                log("[INFO] Showing captcha window...")
                 image.show()
-                capcha = input("Enter the captcha code: ")
-            checkprint("generating email")
-            stuff = req.get(
-                "https://api.guerrillamail.com/ajax.php?f=get_email_address"
-            ).json()
-            email = stuff["email_addr"]
-            checkprint("email address generated email:" + email)
-            checkprint(email)
-            checkprint("creating account")
+                captcha = input("Enter captcha: ")
+            log("[INFO] Generating temporary email...")
+            mailresp = req.get("https://api.guerrillamail.com/ajax.php?f=get_email_address").json()
+            email = mailresp["email_addr"]
+            log(f"[INFO] Using email: {email}")
+
             username = generate_random_string(13)
             client.create_account(
-                capcha,
+                captcha,
                 generate_random_string(13),
                 generate_random_string(13),
                 username,
                 "pegleg1234",
                 email,
             )
-            checkprint("activation email sent")
-            checkprint("waiting for email")
-            hasnotreceived = True
-            while hasnotreceived:
-                nerd = req.get(
-                    "https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token="
-                    + str(stuff["sid_token"])
+            log("[INFO] Activation email sent, waiting...")
+            while True:
+                check = req.get(
+                    f"https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token={mailresp['sid_token']}"
                 ).json()
-
-                if int(nerd["count"]) > 0:
-                    checkprint("email received")
+                if int(check["count"]) > 0:
                     mail = req.get(
-                        "https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id="
-                        + str(nerd["list"][0]["mail_id"])
-                        + "&sid_token="
-                        + str(stuff["sid_token"])
+                        f"https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id={check['list'][0]['mail_id']}&sid_token={mailresp['sid_token']}"
                     ).json()
                     match = re.search(r'\?([^">]+)"', mail["mail_body"])
                     if match:
-                        checkprint("code found")
-                        checkprint("verification code: " + match.group(1))
-                        checkprint("activating account")
-                        client.activate_account(match.group(1))
-                        checkprint("accout activated")
+                        code = match.group(1)
+                        log(f"[INFO] Received activation code: {code}")
+                        client.activate_account(code)
+                        log("[INFO] Account activated, logging in...")
                         time.sleep(1)
-                        checkprint("attempting login")
                         client.login(email, "pegleg1234")
-                        checkprint("login successful")
-                        hasnotreceived = False
+                        log("[INFO] Login successful.")
+                        return
                     else:
-                        checkprint(
-                            "no match in email! you should generally never get this."
-                        )
-                        checkprint("error!")
-
-                else:
-                    checkprint("checked email")
-                    time.sleep(2)
+                        log("[ERROR] Activation code not found in email.")
+                        break
+                time.sleep(2)
         except KeyboardInterrupt:
-            sys.exit()
+            sys.exit(0)
         except Exception as e:
-            checkprint("Got error while creating account: " + repr(e))
+            log(f"[ERROR] While creating account: {e}")
             if args.use_tor:
-                checkprint("attempting to change tor identity")
+                log("[INFO] Attempting to change Tor identity...")
                 try:
                     from stem import Signal
                     from stem.control import Controller
-
                     with Controller.from_port(port=9051) as controller:
                         controller.authenticate()
                         controller.signal(Signal.NEWNYM)
                         time.sleep(controller.get_newnym_wait())
-                        checkprint("tor identity changed")
-                except Exception as e:
-                    checkprint("Got error while changing tor identity: " + repr(e))
-                    continue
+                        log("[INFO] Tor identity changed.")
+                except Exception as et:
+                    log(f"[ERROR] Changing Tor identity: {et}")
             continue
-        else:
-            break
-
-
-def createlinks(number):
-    for i in range(number):
-        if i % 5 == 0:
-            if args.use_tor:
-                checkprint("attempting to change tor identity")
-                try:
-                    from stem import Signal
-                    from stem.control import Controller
-
-                    with Controller.from_port(port=9051) as controller:
-                        controller.authenticate()
-                        controller.signal(Signal.NEWNYM)
-                        time.sleep(controller.get_newnym_wait())
-                        checkprint("tor identity changed")
-                except Exception as e:
-                    checkprint("Got error while changing tor identity: " + repr(e))
-                    checkprint("Not going to try changing identity again")
-                    args.use_tor = False
-            login()
-        createdomain()
-
-
-def createmax():
-    login()
-    checkprint("logged in")
-    checkprint("creating domains")
-    createdomain()
-    createdomain()
-    createdomain()
-    createdomain()
-    createdomain()
-
 
 def createdomain():
     while True:
         try:
             image = getcaptcha()
             if args.auto:
-                capcha = solve(image)
-                checkprint("captcha solved")
+                captcha = solve(image)
+                log(f"[INFO] Captcha solved: {captcha}")
             else:
-                checkprint("showing captcha")
+                log("[INFO] Showing captcha for domain creation...")
                 image.show()
-                capcha = input("Enter the captcha code: ")
+                captcha = input("Enter captcha: ")
 
             if args.single_tld:
-                random_domain_id = non_random_domain_id
+                domain_id = non_random_domain_id
             else:
-                random_domain_id = random.choice(domainlist)
+                domain_id = random.choice(domainlist)
+
             if args.subdomains == "random":
-                subdomainy = generate_random_string(10)
+                subname = generate_random_string(10)
             else:
-                subdomainy = random.choice(args.subdomains.split(","))
-            client.create_subdomain(capcha, args.type, subdomainy, random_domain_id, ip)
-            tld = args.single_tld or domainnames[domainlist.index(random_domain_id)]
-            checkprint("domain created")
-            checkprint(
-                "link: http://"
-                + subdomainy
-                + "."
-                + tld
-            )
-            domainsdb = open(args.outfile, "a")
-            domainsdb.write(
-                "\nhttp://"
-                + subdomainy
-                + "."
-                + tld
-            )
-            domainsdb.close()
-            if hookbool:
-                checkprint("notifying webhook")
-                req.post(
-                    webhook,
-                    json={
-                        "content": "Domain created:\nhttp://"
-                        + subdomainy
-                        + "."
-                        + tld
-                        + "\n ip: "
-                        + ip
-                    },
-                )
-                checkprint("webhook notified")
+                subname = random.choice(args.subdomains.split(","))
+
+            client.create_subdomain(captcha, args.type, subname, domain_id, args.ip)
+            tld = args.single_tld or domainnames[domainlist.index(domain_id)]
+            url = f"http://{subname}.{tld}"
+            log(f"[INFO] Created domain: {url}")
+
+            with open(args.outfile, "a") as f:
+                f.write(url + "\n")
+
+            if args.webhook and args.webhook.lower() != "none":
+                log("[INFO] Notifying webhook...")
+                req.post(args.webhook, json={"content": f"Domain created: {url} | IP: {args.ip}"})
+                log("[INFO] Webhook notified.")
+            return
         except KeyboardInterrupt:
-            # quit
-            sys.exit()
+            sys.exit(0)
         except Exception as e:
-            checkprint("Got error while creating domain: " + repr(e))
+            log(f"[ERROR] While creating domain: {e}")
             continue
-        else:
-            break
 
+def createlinks(number):
+    for i in range(number):
+        if i % 5 == 0:
+            if args.use_tor:
+                log("[INFO] Changing Tor identity before next batch...")
+                try:
+                    from stem import Signal
+                    from stem.control import Controller
+                    with Controller.from_port(port=9051) as controller:
+                        controller.authenticate()
+                        controller.signal(Signal.NEWNYM)
+                        time.sleep(controller.get_newnym_wait())
+                        log("[INFO] Tor identity changed.")
+                except Exception as e:
+                    log(f"[ERROR] Tor identity change failed: {e}")
+                    args.use_tor = False
+            login()
+        createdomain()
 
-non_random_domain_id = None
+def init_flow():
+    """
+    Main entry point that mimics your CLI init(), but reads from GUI controls instead.
+    """
+    global non_random_domain_id
 
+    # Read GUI controls:
+    args.ip = ip_entry.get().strip()
+    args.number = int(num_entry.get()) if num_entry.get().strip().isdigit() else None
+    args.webhook = webhook_entry.get().strip()
+    args.proxy = proxy_entry.get().strip() or None
+    args.use_tor = bool(var_use_tor.get())
+    args.silent = False  # In GUI, we always show log.
+    args.outfile = outfile_entry.get().strip() or "domainlist.txt"
+    args.type = type_var.get().strip() or "A"
+    args.pages = pages_entry.get().strip() or "10"
+    args.subdomains = subdomains_entry.get().strip() or "random"
+    args.auto = bool(var_auto.get())
+    args.single_tld = single_tld_entry.get().strip()
 
-def finddomains(pagearg):
-    pages = pagearg.split(",")
-    for page in pages:
-        getdomains(page)
-
-
-def init():
-    global args, ip, iplist, webhook, hookbool, non_random_domain_id
-    if not args.ip:
-        chosen = chooseFrom(iplist, "Choose an IP to use:")
-        match chosen:
-            case "custom":
-                ip = input("Enter the custom IP: ")
-            case _:
-                ip = iplist[chosen]
-        args.ip = ip  # Assign the chosen/entered IP back to args
-    else:
-        ip = args.ip  # Ensure ip variable is set even if provided via CLI
-    if not args.pages:
-        args.pages = (
-            input(
-                "Enter the page range(s) to scrape (e.g., 15 or 5,8,10-12, default: 10): "
-            )
-            or "10"
-        )
-
-    if not args.webhook:
-        match input("Do you want to use a webhook? (y/n) ").lower():
-            case "y":
-                hookbool = True
-                webhook = input("Enter the webhook URL: ")
-                args.webhook = webhook  # Assign entered webhook back to args
-            case "n":
-                hookbool = False
-                args.webhook = "none"  # Explicitly set to none if declined
-    else:
-        if args.webhook.lower() == "none":
-            hookbool = False
-        else:
-            hookbool = True
-            webhook = args.webhook  # Ensure webhook variable is set
-
-    if (not args.proxy) and (
-        not args.use_tor
-    ):  # Only ask if neither proxy nor tor is set
-        match input("Do you want to use a proxy? (y/n) ").lower():
-            case "y":
-                args.proxy = input(
-                    "Enter the proxy URL (e.g., http://user:pass@host:port): "
-                )
-            case "n":
-                match input(
-                    "Do you want to use Tor (local SOCKS5 proxy on port 9050)? (y/n) "
-                ).lower():
-                    case "y":
-                        args.use_tor = True
-                    case "n":
-                        pass  # Neither proxy nor Tor selected
-    if args.proxy == "none":
-        args.proxy == False
-
-    if not args.outfile:
-        args.outfile = (
-            input(f"Enter the output filename for domains (default: {args.outfile}): ")
-            or args.outfile
-        )
-
-    if not args.type:
-        args.type = (
-            input(f"Enter the type of DNS record to create (default: {args.type}): ")
-            or args.type
-        )
-
-    if not args.pages:
-        args.pages = (
-            input(
-                f"Enter the page range(s) to scrape (e.g., 1-10 or 5,8,10-12, default: {args.pages}): "
-            )
-            or args.pages
-        )
-
-    if not args.subdomains:
-        match input("Use random subdomains? (y/n) ").lower():
-            case "n":
-                args.subdomains = input(
-                    "Enter comma-separated list of subdomains to use: "
-                )
-            case "y":
-                pass
-            
-    if not args.number:
-        num_links_input = input("Enter the number of links to create: ")
-        try:
-            num_links = int(num_links_input)
-            args.number = num_links
-        except ValueError:
-            checkprint("Invalid number entered. Exiting.")
-            sys.exit(1)
-    if not args.auto:
-        match input("Use automatic captcha solving? (y/n) ").lower():
-            case "y":
-                args.auto = True
-            case "n":
-                args.auto = False
-
+    # Set up proxies/Tor for the freedns client:
     if args.use_tor:
-        checkprint("using local tor proxy on port 9050")
-        proxies = {
+        start_tor()
+        client.session.proxies.update({
             "http": "socks5h://127.0.0.1:9050",
             "https": "socks5h://127.0.0.1:9050",
-        }
-        client.session.proxies.update(proxies)
-        checkprint("tor proxy set")
+        })
+        log("[INFO] Using Tor proxy for HTTP requests.")
+    elif args.proxy:
+        client.session.proxies.update({"http": args.proxy, "https": args.proxy})
+        log(f"[INFO] Using HTTP proxy: {args.proxy}")
 
-    if args.proxy != "none":
-        checkprint("setting proxy with proxy: " + args.proxy)
-        proxies = {"http": args.proxy, "https": args.proxy}
-        client.session.proxies.update(proxies)
-        checkprint("proxy set")
+    # Determine IP if not provided
+    if not args.ip:
+        # Simple fallback: pick first from a static list or ask user manually.
+        log("[ERROR] No IP provided. Please enter a valid IP in the UI.")
+        return
+
+    # Determine pages to scrape:
+    if not args.pages:
+        args.pages = "10"
+
+    # Handle single_tld or get all domains
+    non_random_domain_id = None
     if args.single_tld:
-        checkprint("Using single domain mode")
-        checkprint("Finding domain ID for: " + args.single_tld)
-        non_random_domain_id = find_domain_id(args.single_tld)
-        checkprint(f"Using single domain ID: {non_random_domain_id}")
+        try:
+            non_random_domain_id = find_domain_id(args.single_tld)
+            log(f"[INFO] Using single TLD ID: {non_random_domain_id}")
+        except Exception as e:
+            log(f"[ERROR] Could not find domain ID for TLD '{args.single_tld}': {e}")
+            return
     else:
-        finddomains(args.pages)
+        try:
+            log("[INFO] Fetching domain list...")
+            getdomains(args.pages)
+            log(f"[INFO] Total domains fetched: {len(domainlist)}")
+        except Exception as e:
+            log(f"[ERROR] getdomains() failed: {e}")
+            return
 
+    # If number was provided, create that many; else do one full batch of five
     if args.number:
         createlinks(args.number)
-    
+    else:
+        login()
+        for _ in range(5):
+            createdomain()
+
+    if args.use_tor:
+        stop_tor()
+
+    log("[INFO] All done.")
+
+# ─── Build the Tkinter UI ────────────────────────────────────────────────────────
+
+root_style = Style("superhero")
+root = root_style.master
+root.title("🚀 Domain92 GUI")
+root.state("zoomed")    # On Windows, this will open the window maximized.
+root.resizable(True, True)
+
+# Sidebar frame
+sidebar = tk.Frame(root, width=300, bg="#2b2b2b", padx=10, pady=10)
+sidebar.pack(side="left", fill="y")
+
+# Main output frame
+output_frame = tk.Frame(root, padx=10, pady=10)
+output_frame.pack(side="right", fill="both", expand=True)
+
+# ─── Sidebar widgets ────────────────────────────────────────────────────────────
+
+tk.Label(sidebar, text="Domain92 GUI", fg="white", bg="#2b2b2b", font=("Segoe UI", 18, "bold")).pack(pady=(0, 15))
+
+# IP
+tk.Label(sidebar, text="IP Address:", fg="white", bg="#2b2b2b").pack(anchor="w")
+ip_entry = tk.Entry(sidebar)
+ip_entry.pack(fill="x", pady=(0, 10))
+
+# Number of links
+tk.Label(sidebar, text="Number of links (optional):", fg="white", bg="#2b2b2b").pack(anchor="w")
+num_entry = tk.Entry(sidebar)
+num_entry.pack(fill="x", pady=(0, 10))
+
+# Pages to scrape
+tk.Label(sidebar, text="Pages to scrape (e.g. 1-10):", fg="white", bg="#2b2b2b").pack(anchor="w")
+pages_entry = tk.Entry(sidebar)
+pages_entry.insert(0, "10")
+pages_entry.pack(fill="x", pady=(0, 10))
+
+# Subdomains
+tk.Label(sidebar, text="Subdomains (comma or 'random'):", fg="white", bg="#2b2b2b").pack(anchor="w")
+subdomains_entry = tk.Entry(sidebar)
+subdomains_entry.insert(0, "random")
+subdomains_entry.pack(fill="x", pady=(0, 10))
+
+# Single TLD (optional)
+tk.Label(sidebar, text="Single TLD (optional):", fg="white", bg="#2b2b2b").pack(anchor="w")
+single_tld_entry = tk.Entry(sidebar)
+single_tld_entry.pack(fill="x", pady=(0, 10))
+
+# Record type
+tk.Label(sidebar, text="Record type (default A):", fg="white", bg="#2b2b2b").pack(anchor="w")
+type_var = tk.StringVar(value="A")
+type_menu = tk.OptionMenu(sidebar, type_var, "A", "AAAA", "CNAME", "TXT")
+type_menu.configure(bg="#3b3b3b", fg="white")
+type_menu.pack(fill="x", pady=(0, 10))
+
+# Webhook
+tk.Label(sidebar, text="Webhook URL (optional):", fg="white", bg="#2b2b2b").pack(anchor="w")
+webhook_entry = tk.Entry(sidebar)
+webhook_entry.pack(fill="x", pady=(0, 10))
+
+# Proxy
+tk.Label(sidebar, text="HTTP Proxy (optional):", fg="white", bg="#2b2b2b").pack(anchor="w")
+proxy_entry = tk.Entry(sidebar)
+proxy_entry.pack(fill="x", pady=(0, 10))
+
+# Use Tor?
+var_use_tor = tk.IntVar()
+tk.Checkbutton(sidebar, text="Use Tor", variable=var_use_tor, fg="white", bg="#2b2b2b", selectcolor="#2b2b2b").pack(anchor="w", pady=(0, 10))
+
+# Auto solve captcha?
+var_auto = tk.IntVar()
+tk.Checkbutton(sidebar, text="Auto‐solve Captcha", variable=var_auto, fg="white", bg="#2b2b2b", selectcolor="#2b2b2b").pack(anchor="w", pady=(0, 10))
+# Start button
+start_btn = tk.Button(sidebar, text="🚀 Start", command=lambda: threading.Thread(target=init_flow, daemon=True).start(),
+                      bg="#4caf50", fg="white", font=("Segoe UI", 12, "bold"))
+start_btn.pack(fill="x", pady=(0, 20))
+
+# Output filename
+tk.Label(sidebar, text="Output file:", fg="white", bg="#2b2b2b").pack(anchor="w")
+outfile_entry = tk.Entry(sidebar)
+outfile_entry.insert(0, "domainlist.txt")
+outfile_entry.pack(fill="x", pady=(0, 20))
 
 
-def chooseFrom(dictionary, message):
-    checkprint(message)
-    for i, key in enumerate(dictionary.keys()):
-        checkprint(f"{i+1}. {key}")
-    choice = int(input("Choose an option by number: "))
-    return list(dictionary.keys())[choice - 1]
+# ─── Output (ScrolledText) ──────────────────────────────────────────────────────
 
+log_widget = ScrolledText(output_frame, bg="#1e1e1e", fg="#00ff99", insertbackground="white",
+                          font=("Consolas", 10), wrap="word")
+log_widget.pack(fill="both", expand=True)
+log_widget.configure(state="disabled")
 
-if __name__ == "__main__":
-    init()
+# ─── Quit handling ───────────────────────────────────────────────────────────────
+
+def on_closing():
+    stop_tor()
+    root.destroy()
+
+root.protocol("WM_DELETE_WINDOW", on_closing)
+
+# Kick off initial ASCII art if desired
+log("Starting Domain92 GUI...")
+log("Made with ❤️ by Cbass92")
+
+root.mainloop()
