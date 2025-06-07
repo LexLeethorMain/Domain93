@@ -5,7 +5,7 @@ a = Analysis(
     ['domain92\\__main__.py'],
     pathex=[],
     binaries=[],
-    datas=[('domain92\\data', 'data')],
+    datas=[('domain92\\data', 'data'), ('domain92\\tor', 'tor')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
