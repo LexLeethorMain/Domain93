@@ -1,9 +1,7 @@
-name: Build EXE and Upload to Release
+name: Build domain93
+
 on:
-  workflow_dispatch:    # Manually trigger the workflow
-  push:
-    tags:
-      - 'v*'  # Trigger on version tags like v1.0.0
+  workflow_dispatch:
 
 jobs:
   build:
@@ -11,26 +9,39 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
+      - name: Install Poetry
+        run: |
+          pip install poetry
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          poetry install
+
+      - name: Add Poetry to PATH
+        run: |
+          echo "%USERPROFILE%\.poetry\bin" >> $GITHUB_PATH
+
+      - name: Install PyInstaller
+        run: |
           pip install pyinstaller
 
-      - name: Build EXE with PyInstaller
+      - name: Build with PyInstaller
         run: |
-          pyinstaller --onefile --noconsole --name domain93 --add-data "domain93\data;data" --add-data "domain93\tor;tor" domain93\__main__.py
+          pyinstaller --onefile --noconsole ^
+            --name domain93 ^
+            --add-data "domain93\\data;data" ^
+            --add-data "domain93\\tor;tor" ^
+            domain93\\__main__.py
 
-      - name: Upload EXE to GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: dist/domain93.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: domain93.exe
+          path: dist/domain93.exe
