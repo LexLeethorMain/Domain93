@@ -50,15 +50,10 @@ def check_and_install_dependencies():
     print("-" * 60)
 
 # Run the dependency check right at the start
-check_and_install_dependencies()
 
-print("Starting Domain93 GUI...")
 # ───────────────────────────────────────────────────────────────────────────────
 
 
-import os
-import sys
-import time
 import threading
 import subprocess
 import platform
@@ -883,5 +878,11 @@ def main():
     log("Fork of Domain92 made with ❤️ by LexLeethor & Polaroid.Camera")
     root.mainloop()
 
+
 if __name__ == "__main__":
+    # When running as a PyInstaller-built EXE, sys.frozen is True,
+    # so we skip the pip-install bootstrapping.
+    if not getattr(sys, "frozen", False):
+        check_and_install_dependencies()
+
     main()
