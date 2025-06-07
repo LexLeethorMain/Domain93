@@ -19,15 +19,15 @@ def check_and_install_dependencies():
     Checks if the required Python packages are installed, and if not,
     attempts to install them using pip.
     """
-    print("─" * 60)
+    print("-" * 60)
     print("Checking for required packages...")
     
     for import_name, package_name in REQUIRED_PACKAGES:
         try:
             __import__(import_name)
-            print(f"  [✓] {package_name} is already installed.")
+            print(f" {package_name} is already installed.")
         except ImportError:
-            print(f"  [✗] {package_name} not found. Attempting to install...")
+            print(f" {package_name} not found. Attempting to install...")
             try:
                 # Use sys.executable to ensure pip is from the correct Python env
                 # Redirect output to DEVNULL to keep the console clean
@@ -36,18 +36,18 @@ def check_and_install_dependencies():
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
-                print(f"      Successfully installed {package_name}.")
+                print(f"Successfully installed {package_name}.")
             except subprocess.CalledProcessError:
-                print(f"      [ERROR] Failed to install {package_name}.")
-                print("      Please install it manually using the command:")
-                print(f"      {os.path.basename(sys.executable)} -m pip install {package_name}")
+                print(f"Failed to install {package_name}.")
+                print("Please install it manually using the command:")
+                print(f"{os.path.basename(sys.executable)} -m pip install {package_name}")
                 sys.exit(1) # Exit if a crucial dependency can't be installed
             except FileNotFoundError:
                  print("      [ERROR] 'pip' is not available. Please ensure pip is installed.")
                  sys.exit(1)
                  
     print("All dependencies are satisfied.")
-    print("─" * 60)
+    print("-" * 60)
 
 # Run the dependency check right at the start
 check_and_install_dependencies()
