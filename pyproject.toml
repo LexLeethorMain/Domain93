@@ -1,20 +1,19 @@
 [tool.poetry]
-name = "domain92"
+name = "domain93"
 version = "1.2.0"
-description = "A totally rad cli tool to automate freedns link creation"
+description = "A totally rad GUI tool to automate freedns link creation"
 authors = ["Cbass92 <contact@cbass92.org>"]
 readme = "README.md"
-repository = "https://github.com/sebastian-92/domain92"
+repository = "https://github.com/LexLeethorMain/domain93"  # ← update with your actual forked repo
 
 [project]
-name = "domain92"
+name = "domain93"
 dynamic = [ "version" ]
 license = "GPL-3.0-or-later"
 
 include = [
-    { path = "domain92/data", format = ["sdist", "wheel"] }
+    { path = "domain93/data", format = ["sdist", "wheel"] }
 ]
-
 
 [tool.poetry.dependencies]
 python = "^3.12"
@@ -27,34 +26,31 @@ lolpython = "^2.2.0"
 pysocks = "^1.7.1"
 stem = "^1.8.2"
 
-
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-domain92 = "domain92.__main__:init"
-
-
+domain93 = "domain93.__main__:init"  # ← if your entry point is still called `init()`
 
 # content below this line added by briefcase convert
 # This project was generated with 0.3.22 using template: https://github.com/beeware/briefcase-template@v0.3.22
 [tool.briefcase]
-project_name = "domain92"
-bundle = "com.cbass92.domain92"
+project_name = "domain93"
+bundle = "com.cbass92.domain93"
 version = "1.1.3"
-url = "https://github.com/sebastian-92/domain92"
+url = "https://github.com/LexLeethorMain/domain93"
 license.file = "LICENSE"
 author = "Cbass92"
 author_email = "contact@cbass92.org"
 
-[tool.briefcase.app.domain92]
-formal_name = "domain92"
-description = "A totally rad cli tool for automating freedns"
+[tool.briefcase.app.domain93]
+formal_name = "domain93"
+description = "A totally rad GUI tool for automating freedns"
 long_description = """More details about the app should go here.
 """
 sources = [
-    "domain92",
+    "domain93",
 ]
 test_sources = [
     "tests",
@@ -71,81 +67,44 @@ requires = [
     "pysocks>=1.7.1",
     "stem"
 ]
-test_requires = [
-    # Add your cross-platform test requirements here
-]
+test_requires = []
 
-[tool.briefcase.app.domain92.macOS]
+[tool.briefcase.app.domain93.macOS]
 universal_build = true
-requires = [
-    # Add your macOS-specific app requirements here
-]
+requires = []
 
-[tool.briefcase.app.domain92.linux]
-requires = [
-    # Add your Linux-specific app requirements here
-]
+[tool.briefcase.app.domain93.linux]
+requires = []
 
-[tool.briefcase.app.domain92.linux.system.debian]
-system_requires = [
-    # Add any system packages needed at build the app here
-]
+[tool.briefcase.app.domain93.linux.system.debian]
+system_requires = []
+system_runtime_requires = []
 
-system_runtime_requires = [
-    # Add any system packages needed at runtime here
-]
+[tool.briefcase.app.domain93.linux.system.rhel]
+system_requires = []
+system_runtime_requires = []
 
-[tool.briefcase.app.domain92.linux.system.rhel]
-system_requires = [
-    # Add any system packages needed at build the app here
-]
+[tool.briefcase.app.domain93.linux.system.suse]
+system_requires = []
+system_runtime_requires = []
 
-system_runtime_requires = [
-    # Add any system packages needed at runtime here
-]
+[tool.briefcase.app.domain93.linux.system.arch]
+system_requires = []
+system_runtime_requires = []
 
-[tool.briefcase.app.domain92.linux.system.suse]
-system_requires = [
-    # Add any system packages needed at build the app here
-]
-
-system_runtime_requires = [
-    # Add any system packages needed at runtime here
-]
-
-[tool.briefcase.app.domain92.linux.system.arch]
-system_requires = [
-    # Add any system packages needed at build the app here
-]
-
-system_runtime_requires = [
-    # Add any system packages needed at runtime here
-]
-
-[tool.briefcase.app.domain92.linux.flatpak]
+[tool.briefcase.app.domain93.linux.flatpak]
 flatpak_runtime = "org.freedesktop.Platform"
 flatpak_runtime_version = "24.08"
 flatpak_sdk = "org.freedesktop.Sdk"
 
-[tool.briefcase.app.domain92.windows]
-requires = [
-    # Add your Windows-specific app requirements here
-]
+[tool.briefcase.app.domain93.windows]
+requires = []
 
-# Mobile deployments
-[tool.briefcase.app.domain92.iOS]
-requires = [
-    # Add your iOS-specific app requirements here
-]
+[tool.briefcase.app.domain93.iOS]
+requires = []
 
-[tool.briefcase.app.domain92.android]
-requires = [
-    # Add your Android-specific app requirements here
-]
+[tool.briefcase.app.domain93.android]
+requires = []
 
-# Web deployments
-[tool.briefcase.app.domain92.web]
-requires = [
-    # Add your web-specific app requirements here
-]
-
+[tool.briefcase.app.domain93.web]
+requires = []
