@@ -1,31 +1,50 @@
-# domain92
-A totally rad cli tool to automate freedns link creation.<br><br>
-For more in depth information and tutorials, see the [community wiki](https://github.com/sebastian-92/domain92/wiki)!
+# domain93
+
+A totally rad GUI tool to automate FreeDNS link creation — now with buttons!  
+> Forked from [domain92](https://github.com/sebastian-92/domain92)
+
+For advanced usage and tutorials, check out the [community wiki](https://github.com/sebastian-92/domain92/wiki) — it still applies!
+
 ## Function
-This script simplifies account creation and domain making on freedns.afraid.org.
-It uses ading2210's [freedns client](https://github.com/ading2210/freedns-client) and the guerrillamail.com api.
-All you have to do is sit there and solve captchas!
-## table of contents
-- [domain92](#domain92)
+
+`domain93` simplifies account creation and subdomain setup on [freedns.afraid.org](https://freedns.afraid.org), now with a **friendly GUI** for ease of use.
+
+It uses:
+- 🧠 [ading2210's freedns-client](https://github.com/ading2210/freedns-client)
+- 📫 The guerrillamail.com API for temp email
+- 🖱️ A modern interface built with `tkinter` + `ttkbootstrap`  
+You just need to solve the CAPTCHA — we’ll handle the rest.
+
+## Table of Contents
+
+- [domain93](#domain93)
   - [Function](#function)
-  - [table of contents](#table-of-contents)
+  - [Table of Contents](#table-of-contents)
   - [Installation](#installation)
-    - [with pip](#with-pip)
-      - [install from pypi](#install-from-pypi)
-      - [install from github repository](#install-from-github-repository)
-- [License](#license)
+    - [Install with pip](#install-with-pip)
+      - [From GitHub](#from-github)
+      - [From PyPI (coming soon)](#from-pypi-coming-soon)
+  - [Running the App](#running-the-app)
+  - [Screenshots](#screenshots)
+  - [License](#license)
 
 ## Installation
-### with pip
-#### install from pypi
+
+### Install with pip
+
+#### From GitHub
+
 ```bash
-pip install domain92
-```
-#### install from github repository
-```bash
-pip install git+https://github.com/sebastian-92/domain92
-```
-### See the [community wiki](https://github.com/sebastian-92/domain92/wiki/Usage) for up-to-date usage instructions
-#### please star on [github](https://github.com/sebastian-92/domain92) if you use this!
-# License
-This project is licensed under the [GNU AGPL v3.0](LICENSE) :)
+pip install git+https://github.com/LexLeethorMain/domain93
+From PyPI (coming soon)
+
+pip install domain93
+Running the App
+After installing, just run:
+
+python -m domain93
+Or if installed as an executable:
+
+
+domain93
+Make sure you have Python 3.10+ and tkinter installed.

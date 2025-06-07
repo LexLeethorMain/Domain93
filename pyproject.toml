@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "Domain93"
-version = "1.0.0"
+version = "1.0.1"
 description = "Fork of Domain92 with a GUI"
 authors = ["Polaroid.Camera", "LexLeethor (Pi 5)"]
 readme = "README.md"
