@@ -34,12 +34,8 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --onefile --noconsole ^
-            --name domain93 ^
-            --add-data "domain93\\data;data" ^
-            --add-data "domain93\\tor;tor" ^
-            domain93\\__main__.py
-
+          pyinstaller --onefile --noconsole --name domain93 --add-data "domain93\\data;data" --add-data "domain93\\tor;tor" domain93\\__main__.py
+  
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
