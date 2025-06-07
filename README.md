@@ -13,7 +13,6 @@ It uses:
 - 🧠 [ading2210's freedns-client](https://github.com/ading2210/freedns-client)
 - 📫 The guerrillamail.com API for temp email
 - 🖱️ A modern interface built with `tkinter` + `ttkbootstrap`  
-You just need to solve the CAPTCHA — we’ll handle the rest.
 
 ## Table of Contents
 
