@@ -5,6 +5,7 @@ import threading
 import subprocess
 import platform
 from io import BytesIO
+from art import *
 from PIL import Image, ImageFilter
 import socket
 import copy
@@ -20,9 +21,10 @@ from stem import Signal
 from stem.control import Controller
 
 import tkinter as tk
+from tkinter import ttk as tk_ttk # To avoid conflict with ttkbootstrap
 from tkinter import filedialog
 from tkinter.scrolledtext import ScrolledText
-from ttkbootstrap import Style
+import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
 # ─── Helper: log/output to the ScrolledText widget ─────────────────────────────
@@ -31,7 +33,7 @@ log_widget = None
 
 def log(msg, style=""):
     """
-    Append a line to the ScrolledText output. 
+    Append a line to the ScrolledText output.
     style is ignored here but could be used to change tag.
     """
     global log_widget
@@ -60,7 +62,7 @@ def start_tor():
     script_dir = os.path.dirname(__file__)
     tor_path = os.path.join(script_dir, "tor", "tor", "tor.exe")
     tor_data_dir = os.path.join(script_dir, "tor_data")
-    
+
     # Create tor data directory if it doesn't exist
     os.makedirs(tor_data_dir, exist_ok=True)
 
@@ -95,7 +97,7 @@ def start_tor():
     start_ts = time.time()
     socks_ready = False
     control_ready = False
-    
+
     while True:
         if time.time() - start_ts > 30:  # 30 second timeout
             if not socks_ready:
@@ -128,7 +130,7 @@ def start_tor():
         if socks_ready and control_ready:
             log("[INFO] Tor is fully initialized and ready to use.")
             return True
-            
+
         time.sleep(0.5)
 
 
@@ -180,7 +182,7 @@ def resource_path(relative_path):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.abspath(relative_path)
 
-# ─── Domain92 logic (mostly unchanged, just reading from GUI controls) ───────────
+# ─── Domain93 logic (mostly unchanged, just reading from GUI controls) ───────────
 
 # We will store “arguments” in a simple namespace object instead of argparse.
 class Args:
@@ -220,7 +222,6 @@ def get_data_path():
 tess_path = get_data_path()
 if tess_path:
     pytesseract.pytesseract.tesseract_cmd = tess_path
-    log(f"[INFO] Using Tesseract at: {tess_path}")
 else:
     log("[WARN] No valid Tesseract binary found.")
 
@@ -356,6 +357,7 @@ def denoise(img):
             if black_neighbors <= 6:
                 newarr[x, y] = (255, 255, 255)
     return newimg
+
 def solve(image):
     """
     Run multiple OCR “strategies” on the same image until we get
@@ -366,20 +368,20 @@ def solve(image):
     image = denoise(image)
 
     # Define a list of (filter_pipeline, tesseract_config, post_regex) tuples.
-    # Each entry is one “try” with its own preprocessing & psm. 
+    # Each entry is one “try” with its own preprocessing & psm.
     strategies = [
         # Strategy 1: light blur → convert to 1-bit → rank filter
         (
             lambda im: im.filter(ImageFilter.GaussianBlur(1))
-                        .convert("1")
-                        .filter(ImageFilter.RankFilter(3, 3)),
+                           .convert("1")
+                           .filter(ImageFilter.RankFilter(3, 3)),
             "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 7",
             r"[^A-Z]"
         ),
         # Strategy 2: stronger blur → median filter
         (
             lambda im: im.filter(ImageFilter.GaussianBlur(2))
-                        .filter(ImageFilter.MedianFilter(3)),
+                           .filter(ImageFilter.MedianFilter(3)),
             "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8",
             r"[^A-Za-z]"
         ),
@@ -421,19 +423,12 @@ def login(change_identity=False):
     Handle account creation and login.
     
     Args:
-        change_identity: If True and using Tor, change Tor identity before creating account
+        change_identity: If True and using Tor, change Tor identity before creating new account
     """
     if change_identity and args.use_tor:
         log("[INFO] Changing Tor identity before creating new account...")
-        try:
-            with Controller.from_port(port=9051) as controller:
-                controller.authenticate()
-                controller.signal(Signal.NEWNYM)
-                time.sleep(controller.get_newnym_wait())
-                log("[INFO] Tor identity changed.")
-        except Exception as e:
-            log(f"[ERROR] Changing Tor identity: {e}")
-    
+        change_tor_identity()
+
     while True:
         try:
             log("[INFO] Fetching captcha...")
@@ -442,10 +437,10 @@ def login(change_identity=False):
                 captcha = solve(image)
                 log(f"[INFO] Captcha solved: {captcha}")
             else:
-                log("[INFO] Showing captcha window...")
+                log("[INFO] Showing captcha window... Please enter code in the console.")
                 image.show()
                 captcha = input("Enter captcha: ")
-            
+
             log("[INFO] Generating temporary email...")
             mailresp = req.get("https://api.guerrillamail.com/ajax.php?f=get_email_address").json()
             email = mailresp["email_addr"]
@@ -461,7 +456,7 @@ def login(change_identity=False):
                 email,
             )
             log("[INFO] Activation email sent, waiting...")
-            
+
             # Wait for activation email with timeout
             start_time = time.time()
             while time.time() - start_time < 120:  # 2 minute timeout
@@ -491,28 +486,26 @@ def login(change_identity=False):
             else:
                 log("[ERROR] Timed out waiting for activation email")
                 return False
-                
+
         except KeyboardInterrupt:
-            sys.exit(0)
+            sys.exit()
         except Exception as e:
             log(f"[ERROR] While creating account: {e}")
-            # Don't change Tor identity here, just retry with same identity
-            time.sleep(5)  # Short delay before retry
+            time.sleep(5)
             continue
 
 def createdomain():
     while True:
         try:
-            # Initialize webhook variables
             hookbool = bool(args.webhook)
             webhook = args.webhook if hookbool else ""
-            
+
             image = getcaptcha()
             if args.auto:
                 capcha = solve(image)
-                log("captcha solved")
+                log("Captcha solved")
             else:
-                log("showing captcha")
+                log("Showing captcha... Please enter code in the console.")
                 image.show()
                 capcha = input("Enter the captcha code: ")
 
@@ -524,37 +517,30 @@ def createdomain():
                 subdomainy = generate_random_string(10)
             else:
                 subdomainy = random.choice(args.subdomains.split(","))
-                
-            # Use the provided IP or default to 172.93.102.156
-            ip_address = args.ip if hasattr(args, 'ip') and args.ip else "172.93.102.156"
+
+            ip_address = args.ip or "172.93.102.156"
             client.create_subdomain(capcha, args.type, subdomainy, random_domain_id, ip_address)
-            
+
             tld = args.single_tld or domainnames[domainlist.index(random_domain_id)]
             domain_url = f"http://{subdomainy}.{tld}"
-            
-            log("domain created")
-            log(f"link: {domain_url}")
-            
-            # Save to output file
+
+            log(f"Domain created: {domain_url}")
+
             with open(args.outfile, "a") as domainsdb:
-                domainsdb.write(f"\n{domain_url}")
-            
-            # Notify webhook if configured
+                domainsdb.write(f"{domain_url}\n")
+
             if hookbool:
-                log("notifying webhook")
+                log("Notifying webhook...")
                 try:
                     req.post(
                         webhook,
-                        json={
-                            "content": f"Domain created:\n{domain_url}\nIP: {ip_address}"
-                        },
+                        json={"content": f"Domain created:\n{domain_url}\nIP: {ip_address}"},
                         timeout=10
                     )
-                    log("webhook notified")
+                    log("Webhook notified.")
                 except Exception as e:
                     log(f"Failed to notify webhook: {e}")
         except KeyboardInterrupt:
-            # quit
             sys.exit()
         except Exception as e:
             log("Got error while creating domain: " + repr(e))
@@ -564,29 +550,18 @@ def createdomain():
 
 def createlinks(number):
     for i in range(number):
-        # Only change Tor identity when starting a new account (every 5 domains)
         if i % 5 == 0:
             if args.use_tor:
                 log("[INFO] Starting new account batch - changing Tor identity...")
-                try:
-                    with Controller.from_port(port=9051) as controller:
-                        controller.authenticate()
-                        controller.signal(Signal.NEWNYM)
-                        time.sleep(controller.get_newnym_wait())
-                        log("[INFO] Tor identity changed successfully")
-                except Exception as e:
-                    log(f"[ERROR] Failed to change Tor identity: {e}")
-                    log("[WARNING] Continuing with current Tor circuit")
-            
-            # Create a new account with the new identity
+                change_tor_identity()
+
             login(change_identity=False)
-        
-        # Create a domain with the current account
+
         createdomain()
 
 def init_flow():
     """
-    Main entry point that mimics your CLI init(), but reads from GUI controls instead.
+    Main entry point that reads from GUI controls and runs the logic.
     """
     global non_random_domain_id
 
@@ -596,54 +571,44 @@ def init_flow():
     args.webhook = webhook_entry.get().strip()
     args.proxy = proxy_entry.get().strip() or None
     args.use_tor = bool(var_use_tor.get())
-    args.silent = False  # In GUI, we always show log.
     args.outfile = outfile_entry.get().strip() or "domainlist.txt"
-    args.type = type_var.get().strip() or "A"
-    args.pages = pages_entry.get().strip() or "10"
+    args.type = type_var.get()
+    args.pages = pages_entry.get().strip() or "1-10"
     args.subdomains = subdomains_entry.get().strip() or "random"
     args.auto = bool(var_auto.get())
     args.single_tld = single_tld_entry.get().strip()
 
-    # Set up proxies/Tor for the freedns client:
+    # Set up proxies/Tor:
     if args.use_tor:
-        start_tor()
+        if not start_tor(): return # Exit if Tor fails to start
         client.session.proxies.update({
             "http": "socks5h://127.0.0.1:9050",
             "https": "socks5h://127.0.0.1:9050",
         })
-        log("[INFO] Using Tor proxy for HTTP requests.")
+        log("[INFO] Using Tor proxy for all requests.")
     elif args.proxy:
         client.session.proxies.update({"http": args.proxy, "https": args.proxy})
         log(f"[INFO] Using HTTP proxy: {args.proxy}")
 
-    # Set default IP if not provided
-    if not args.ip:
-        args.ip = "172.93.102.156"
-        log(f"[INFO] No IP provided. Using default IP: {args.ip}")
-
-    # Determine pages to scrape:
-    if not args.pages:
-        args.pages = "10"
-
-    # Handle single_tld or get all domains
+    # Fetch domain list or specific domain ID:
     non_random_domain_id = None
     if args.single_tld:
         try:
+            log(f"Searching for TLD: {args.single_tld}...")
             non_random_domain_id = find_domain_id(args.single_tld)
-            log(f"[INFO] Using single TLD ID: {non_random_domain_id}")
         except Exception as e:
-            log(f"[ERROR] Could not find domain ID for TLD '{args.single_tld}': {e}")
+            log(f"[ERROR] Could not find TLD '{args.single_tld}': {e}")
             return
     else:
         try:
-            log("[INFO] Fetching domain list...")
+            log(f"Fetching domains from pages: {args.pages}...")
             getdomains(args.pages)
             log(f"[INFO] Total domains fetched: {len(domainlist)}")
         except Exception as e:
-            log(f"[ERROR] getdomains() failed: {e}")
+            log(f"[ERROR] Failed to fetch domain list: {e}")
             return
 
-    # If number was provided, create that many; else do one full batch of five
+    # Create domains:
     if args.number:
         createlinks(args.number)
     else:
@@ -654,108 +619,202 @@ def init_flow():
     if args.use_tor:
         stop_tor()
 
-    log("[INFO] All done.")
+    log("✓ All tasks completed.")
+
+# ─── Data for UI ─────────────────────────────────────────────────────────────────
+
+PRESET_IPS = {
+    "Onyx": "172.67.158.114", "Plexile Arcade": "216.24.57.1", "Comet/PXLNOVA": "172.66.46.221",
+    "Bolt": "104.36.86.24", "BrunysIXLWork": "185.211.4.69", "Rammerhead IP": "108.181.32.77",
+    "GlacierOS (A)": "66.241.124.98", "Duckflix": "104.21.54.237", "Canlite (3kh0 v5)": "104.36.85.249",
+    "Lunaar": "164.152.26.189", "Interstellar": "66.23.193.126", "The Pizza Edition": "104.36.84.31",
+    "Light": "104.243.45.193", "Velara": "185.211.4.69", "DuckHTML": "104.167.215.179",
+    "Breakium": "172.93.100.82", "Kazwire 1": "209.222.97.244", "Mocha": "45.88.186.218",
+    "Astro": "104.243.37.85", "FalconLink": "104.243.43.17", "Boredom": "152.53.36.42",
+    "Nowgg.lol": "152.53.80.35", "Moonlight": "172.93.104.11", "Sunset": "107.206.53.96",
+    "Emerald/Phantom Games/G1mkit": "66.23.198.136", "Kazwire 2": "103.195.102.132",
+    "Astroid": "5.161.68.227", "Shadow": "104.243.38.18", "Space": "104.243.38.145",
+    "Szvy Central": "152.53.38.100", "Croxy Proxy 1": "157.230.79.247",
+    "Croxy Proxy 2": "143.244.204.138", "Croxy Proxy 3": "157.230.113.153",
+    "Seraph": "15.235.166.92", "Hdun": "109.204.188.135", "Selenite": "65.109.112.222"
+}
+CUSTOM_IP_OPTION = "Enter Custom IP..."
 
 # ─── Build the Tkinter UI ────────────────────────────────────────────────────────
 
-root_style = Style("superhero")
-root = root_style.master
-root.title("🚀 Domain92 GUI")
-root.state("zoomed")    # On Windows, this will open the window maximized.
-root.resizable(True, True)
+root = ttk.Window(themename="cyborg")
+root.title("Domain93 GUI")
+root.geometry("1200x850")
+root.minsize(1000, 750)
 
-# Sidebar frame
-sidebar = tk.Frame(root, width=300, bg="#2b2b2b", padx=10, pady=10)
-sidebar.pack(side="left", fill="y")
+# Create a new custom style for the button
+style = ttk.Style()
+style.configure('large.success.TButton', font=("Segoe UI Variable", 14, "bold"))
+
+# --- Main layout frames ---
+# Sidebar container
+sidebar_container = ttk.Frame(root)
+sidebar_container.pack(side="left", fill="y", expand=False)
 
 # Main output frame
-output_frame = tk.Frame(root, padx=10, pady=10)
+output_frame = ttk.Frame(root, padding=(20, 20, 20, 10))
 output_frame.pack(side="right", fill="both", expand=True)
 
-# ─── Sidebar widgets ────────────────────────────────────────────────────────────
+# --- Create a scrollable sidebar ---
+# Canvas for scrolling
+canvas = tk.Canvas(sidebar_container, width=375, highlightthickness=0)
+canvas.pack(side="left", fill="both", expand=True)
 
-tk.Label(sidebar, text="Domain92 GUI", fg="white", bg="#2b2b2b", font=("Segoe UI", 18, "bold")).pack(pady=(0, 15))
+# Scrollbar
+scrollbar = ttk.Scrollbar(sidebar_container, orient="vertical", command=canvas.yview)
+scrollbar.pack(side="right", fill="y")
+canvas.configure(yscrollcommand=scrollbar.set)
 
-# IP
-tk.Label(sidebar, text="IP Address:", fg="white", bg="#2b2b2b").pack(anchor="w")
-ip_entry = tk.Entry(sidebar)
-ip_entry.pack(fill="x", pady=(0, 10))
+# Frame to hold the actual sidebar content (this is what will scroll)
+sidebar = ttk.Frame(canvas, padding=(20, 0))
+sidebar_frame_id = canvas.create_window((0, 0), window=sidebar, anchor="nw")
 
-# Number of links
-tk.Label(sidebar, text="Number of links (optional):", fg="white", bg="#2b2b2b").pack(anchor="w")
-num_entry = tk.Entry(sidebar)
-num_entry.pack(fill="x", pady=(0, 10))
+def on_sidebar_configure(event):
+    # Update the scroll region to encompass the inner frame
+    canvas.configure(scrollregion=canvas.bbox("all"))
 
-# Pages to scrape
-tk.Label(sidebar, text="Pages to scrape (e.g. 1-10):", fg="white", bg="#2b2b2b").pack(anchor="w")
-pages_entry = tk.Entry(sidebar)
-pages_entry.insert(0, "10")
-pages_entry.pack(fill="x", pady=(0, 10))
+def on_canvas_configure(event):
+    # Update the width of the inner frame to match the canvas
+    canvas.itemconfig(sidebar_frame_id, width=event.width)
 
-# Subdomains
-tk.Label(sidebar, text="Subdomains (comma or 'random'):", fg="white", bg="#2b2b2b").pack(anchor="w")
-subdomains_entry = tk.Entry(sidebar)
-subdomains_entry.insert(0, "random")
-subdomains_entry.pack(fill="x", pady=(0, 10))
+sidebar.bind("<Configure>", on_sidebar_configure)
+canvas.bind("<Configure>", on_canvas_configure)
 
-# Single TLD (optional)
-tk.Label(sidebar, text="Single TLD (optional):", fg="white", bg="#2b2b2b").pack(anchor="w")
-single_tld_entry = tk.Entry(sidebar)
-single_tld_entry.pack(fill="x", pady=(0, 10))
 
-# Record type
-tk.Label(sidebar, text="Record type (default A):", fg="white", bg="#2b2b2b").pack(anchor="w")
+# --- Callback for Preset Selection ---
+def on_preset_selected(event):
+    selected_preset = preset_combo.get()
+
+    ip_entry.delete(0, tk.END)
+
+    if selected_preset == CUSTOM_IP_OPTION:
+        return
+
+    ip_address = PRESET_IPS.get(selected_preset, "")
+    ip_entry.insert(0, ip_address)
+
+# ─── Sidebar widgets (now packed into the 'sidebar' frame) ───────────────────
+
+# Title
+ttk.Label(sidebar, text="Domain93", font=("Segoe UI Variable", 22, "bold")).pack(pady=(10, 5), anchor="w")
+ttk.Label(sidebar, text="Automated Domain Creator", font=("Segoe UI Variable", 10), bootstyle="secondary").pack(anchor="w")
+ttk.Separator(sidebar, bootstyle="secondary").pack(fill="x", pady=20, anchor="w")
+
+# --- Control Groups ---
+# Network & Destination Group
+net_group = ttk.Labelframe(sidebar, text="Network & Destination", padding=15)
+net_group.pack(fill=X, pady=5)
+
+ttk.Label(net_group, text="Select a Preset").pack(fill=X, pady=(0,5))
+preset_combo = ttk.Combobox(
+    net_group,
+    values=[CUSTOM_IP_OPTION] + list(PRESET_IPS.keys()),
+    bootstyle="dark"
+)
+preset_combo.pack(fill=X, pady=(0, 10))
+preset_combo.current(0)
+preset_combo.bind("<<ComboboxSelected>>", on_preset_selected)
+
+ttk.Label(net_group, text="Destination IP Address (or enter custom)").pack(fill=X, pady=(0,5))
+ip_entry = ttk.Entry(net_group, bootstyle="dark")
+ip_entry.pack(fill=X, pady=(0, 10))
+
+ttk.Label(net_group, text="Record Type").pack(fill=X, pady=(0,5))
 type_var = tk.StringVar(value="A")
-type_menu = tk.OptionMenu(sidebar, type_var, "A", "AAAA", "CNAME", "TXT")
-type_menu.configure(bg="#3b3b3b", fg="white")
-type_menu.pack(fill="x", pady=(0, 10))
+type_menu = ttk.OptionMenu(net_group, type_var, "A", "A", "AAAA", "CNAME", "TXT", bootstyle="dark-outline")
+type_menu.pack(fill=X)
 
-# Webhook
-tk.Label(sidebar, text="Webhook URL (optional):", fg="white", bg="#2b2b2b").pack(anchor="w")
-webhook_entry = tk.Entry(sidebar)
-webhook_entry.pack(fill="x", pady=(0, 10))
+# Domain Source Group
+source_group = ttk.Labelframe(sidebar, text="Domain Source", padding=15)
+source_group.pack(fill=X, pady=(10, 5))
 
-# Proxy
-tk.Label(sidebar, text="HTTP Proxy (optional):", fg="white", bg="#2b2b2b").pack(anchor="w")
-proxy_entry = tk.Entry(sidebar)
-proxy_entry.pack(fill="x", pady=(0, 10))
+ttk.Label(source_group, text="Pages to Scrape (e.g., 1-10)").pack(fill=X, pady=(0,5))
+pages_entry = ttk.Entry(source_group, bootstyle="dark")
+pages_entry.insert(0, "1-10")
+pages_entry.pack(fill=X, pady=(0, 10))
 
-# Use Tor?
+ttk.Label(source_group, text="Subdomains (comma-sep or 'random')").pack(fill=X, pady=(0,5))
+subdomains_entry = ttk.Entry(source_group, bootstyle="dark")
+subdomains_entry.insert(0, "random")
+subdomains_entry.pack(fill=X, pady=(0, 10))
+
+ttk.Label(source_group, text="Specific TLD (optional, overrides Pages)").pack(fill=X, pady=(0,5))
+single_tld_entry = ttk.Entry(source_group, bootstyle="dark")
+single_tld_entry.pack(fill=X)
+
+# Advanced Group
+adv_group = ttk.Labelframe(sidebar, text="Advanced", padding=15)
+adv_group.pack(fill=X, pady=(10, 5))
 var_use_tor = tk.IntVar()
-tk.Checkbutton(sidebar, text="Use Tor", variable=var_use_tor, fg="white", bg="#2b2b2b", selectcolor="#2b2b2b").pack(anchor="w", pady=(0, 10))
+ttk.Checkbutton(adv_group, text="Use Tor for Anonymity", variable=var_use_tor).pack(fill=X, pady=5)
+var_auto = tk.IntVar(value=1) # Set to 1 to enable by default
+ttk.Checkbutton(adv_group, text="Attempt to Auto-Solve Captchas", variable=var_auto).pack(fill=X, pady=(5,10))
+ttk.Label(adv_group, text="HTTP Proxy (optional, e.g. http://ip:port)").pack(fill=X, pady=(5,5))
+proxy_entry = ttk.Entry(adv_group, bootstyle="dark")
+proxy_entry.pack(fill=X)
 
-# Auto solve captcha?
-var_auto = tk.IntVar()
-tk.Checkbutton(sidebar, text="Auto‐solve Captcha", variable=var_auto, fg="white", bg="#2b2b2b", selectcolor="#2b2b2b").pack(anchor="w", pady=(0, 10))
-# Start button
-start_btn = tk.Button(sidebar, text="🚀 Start", command=lambda: threading.Thread(target=init_flow, daemon=True).start(),
-                      bg="#4caf50", fg="white", font=("Segoe UI", 12, "bold"))
-start_btn.pack(fill="x", pady=(0, 20))
+# --- Spacer to push button to the bottom ---
+# The scrollable layout makes this less critical, but it can still provide visual spacing if desired.
+# spacer = ttk.Frame(sidebar)
+# spacer.pack(fill=Y, expand=Y)
 
-# Output filename
-tk.Label(sidebar, text="Output file:", fg="white", bg="#2b2b2b").pack(anchor="w")
-outfile_entry = tk.Entry(sidebar)
+# --- Output & Action Group ---
+ttk.Separator(sidebar, bootstyle="secondary").pack(fill="x", pady=10, anchor="s")
+
+out_group = ttk.Frame(sidebar)
+out_group.pack(fill=X, anchor='s')
+ttk.Label(out_group, text="Number of Domains to Create (optional)").pack(fill=X, pady=(0,5))
+num_entry = ttk.Entry(out_group, bootstyle="dark")
+num_entry.pack(fill=X, pady=(0, 10))
+
+ttk.Label(out_group, text="Output File Name").pack(fill=X, pady=(0,5))
+outfile_entry = ttk.Entry(out_group, bootstyle="dark")
 outfile_entry.insert(0, "domainlist.txt")
-outfile_entry.pack(fill="x", pady=(0, 20))
+outfile_entry.pack(fill=X, pady=(0, 10))
+
+ttk.Label(out_group, text="Webhook URL (optional)").pack(fill=X, pady=(0,5))
+webhook_entry = ttk.Entry(out_group, bootstyle="dark")
+webhook_entry.pack(fill=X, pady=(0, 10))
+
+# Start button
+start_btn = ttk.Button(
+    sidebar,
+    text="🚀  Start Process",
+    command=lambda: threading.Thread(target=init_flow, daemon=True).start(),
+    style='large.success.TButton' # Use the custom style
+)
+start_btn.pack(fill="x", ipady=12, pady=(15, 10), anchor="s")
+
+# --- Credit in corner ---
+credit_frame = ttk.Frame(sidebar)
+credit_frame.pack(fill=X, anchor='s', pady=(0, 10))
+ttk.Label(credit_frame, text="Original by Cbass92", font=("Segoe UI Variable", 8), bootstyle="secondary").pack(side="left", padx=5)
 
 
 # ─── Output (ScrolledText) ──────────────────────────────────────────────────────
 
-log_widget = ScrolledText(output_frame, bg="#1e1e1e", fg="#00ff99", insertbackground="white",
-                          font=("Consolas", 10), wrap="word")
+log_widget = ScrolledText(output_frame, bg="#1e1e1e", fg="#00de7a", relief="flat",
+                          insertbackground="white", font=("Consolas", 11), wrap="word",
+                          bd=0, highlightthickness=0, selectbackground="#0078D7")
 log_widget.pack(fill="both", expand=True)
 log_widget.configure(state="disabled")
 
 # ─── Quit handling ───────────────────────────────────────────────────────────────
 
 def on_closing():
+    log("[INFO] Shutting down...")
     stop_tor()
     root.destroy()
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
 
-# Kick off initial ASCII art if desired
-log("Starting Domain92 GUI...")
-log("Made with ❤️ by Cbass92")
-
-root.mainloop()
+# Initial log message
+if __name__ == "__main__":
+    log(text2art("domain93"))
+    log("Fork of Domain92 made with ❤️ by LexLeethor & Polaroid.Camera")
+    root.mainloop()
