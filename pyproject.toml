@@ -1,10 +1,11 @@
 [tool.poetry]
-name = "domain93"
-version = "1.2.0"
-description = "A totally rad GUI tool to automate freedns link creation"
-authors = ["Cbass92 <contact@cbass92.org>"]
+name = "Domain93"
+version = "1.0.1"
+description = "Fork of Domain92 with a GUI"
+authors = ["Polaroid.Camera", "LexLeethor (Pi 5)"]
 readme = "README.md"
 repository = "https://github.com/LexLeethorMain/domain93"
+
 
 [tool.poetry.dependencies]
 python = ">=3.9"
@@ -33,12 +34,12 @@ bundle = "com.cbass92.domain93"
 version = "1.2.0"
 url = "https://github.com/LexLeethorMain/domain93"
 license.file = "LICENSE"
-author = "Cbass92"
+author = "LexLeethor/Polaroid.Camera"
 author_email = "contact@cbass92.org"
 
 [tool.briefcase.app.domain93]
 formal_name = "domain93"
-description = "A totally rad GUI tool for automating freedns"
+description = "A totally rad cli tool for automating freedns"
 long_description = """More details about the app should go here.
 """
 sources = [
