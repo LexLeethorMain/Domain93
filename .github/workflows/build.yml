@@ -1,6 +1,6 @@
 name: Build EXE and Upload to Release
-
 on:
+  workflow_dispatch:    # Manually trigger the workflow
   push:
     tags:
       - 'v*'  # Trigger on version tags like v1.0.0
