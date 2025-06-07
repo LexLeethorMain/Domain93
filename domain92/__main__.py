@@ -6,6 +6,7 @@ import subprocess
 import platform
 from io import BytesIO
 from PIL import Image, ImageFilter
+import socket
 import copy
 import re
 import random
@@ -15,6 +16,8 @@ import freedns
 import pytesseract
 import lolpython
 from importlib.metadata import version
+from stem import Signal
+from stem.control import Controller
 
 import tkinter as tk
 from tkinter import filedialog
@@ -45,34 +48,127 @@ tor_process = None
 
 def start_tor():
     """
-    Launches Tor as a subprocess (must have tor binary in PATH or specify full path).
+    Locate tor.exe at ./tor/tor/tor.exe (relative to this file),
+    launch it with control port, and wait until the SOCKS5 port (127.0.0.1:9050) is listening.
     """
     global tor_process
-    if tor_process is None:
-        # On Windows you might need "tor.exe"; adjust if needed.
-        try:
-            tor_process = subprocess.Popen(
-                ["tor", "--quiet"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            log("[INFO] Tor process started.")
-            # Wait a bit for Tor to initialize
-            time.sleep(5)
-        except FileNotFoundError:
-            log("[ERROR] Tor binary not found. Make sure Tor is installed and in your PATH.")
-    else:
-        log("[INFO] Tor already running.")
+    if tor_process is not None:
+        log("[INFO] Tor is already running.")
+        return True
+
+    # 1) Build the path to tor.exe relative to this script:
+    script_dir = os.path.dirname(__file__)
+    tor_path = os.path.join(script_dir, "tor", "tor", "tor.exe")
+    tor_data_dir = os.path.join(script_dir, "tor_data")
+    
+    # Create tor data directory if it doesn't exist
+    os.makedirs(tor_data_dir, exist_ok=True)
+
+    if not os.path.isfile(tor_path):
+        log(f"[ERROR] tor.exe not found at {tor_path}.")
+        return False
+
+    # 2) Launch tor.exe with control port and cookie authentication
+    try:
+        tor_process = subprocess.Popen(
+            [
+                tor_path,
+                "--quiet",
+                "--SocksPort", "9050",
+                "--ControlPort", "9051",
+                "--DataDirectory", tor_data_dir,
+                "--CookieAuthentication", "1",
+                "--SocksTimeout", "60",
+                "--NewCircuitPeriod", "60",
+                "--MaxCircuitDirtiness", "60"
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        log(f"[INFO] Launched Tor subprocess (PID={tor_process.pid}). Waiting for it to start...")
+    except Exception as e:
+        log(f"[ERROR] Failed to start Tor: {e}")
+        tor_process = None
+        return False
+
+    # 3) Wait for Tor to be ready (both SOCKS and control port)
+    start_ts = time.time()
+    socks_ready = False
+    control_ready = False
+    
+    while True:
+        if time.time() - start_ts > 30:  # 30 second timeout
+            if not socks_ready:
+                log("[ERROR] Tor did not bind to 127.0.0.1:9050 within 30 seconds.")
+            if not control_ready:
+                log("[ERROR] Tor control port did not become ready in time.")
+            stop_tor()
+            return False
+
+        # Check SOCKS port (9050)
+        if not socks_ready:
+            try:
+                s = socket.create_connection(("127.0.0.1", 9050), timeout=1)
+                s.close()
+                log("[INFO] Tor SOCKS5 proxy is ready on 127.0.0.1:9050")
+                socks_ready = True
+            except (ConnectionRefusedError, OSError):
+                pass
+
+        # Check control port (9051)
+        if not control_ready:
+            try:
+                s = socket.create_connection(("127.0.0.1", 9051), timeout=1)
+                s.close()
+                log("[INFO] Tor control port is ready on 127.0.0.1:9051")
+                control_ready = True
+            except (ConnectionRefusedError, OSError):
+                pass
+
+        if socks_ready and control_ready:
+            log("[INFO] Tor is fully initialized and ready to use.")
+            return True
+            
+        time.sleep(0.5)
+
+
+def change_tor_identity():
+    """
+    Change the Tor circuit to get a new identity.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        with Controller.from_port(port=9051) as controller:
+            controller.authenticate()
+            controller.signal(Signal.NEWNYM)
+            # Wait for the new circuit to be established
+            time.sleep(controller.get_newnym_wait() or 5)
+            return True
+    except Exception as e:
+        log(f"[ERROR] Failed to change Tor identity: {e}")
+        return False
+
 
 def stop_tor():
     """
-    Terminates the Tor subprocess if it was started.
+    Terminate the Tor subprocess if it was started.
     """
     global tor_process
     if tor_process:
-        tor_process.terminate()
-        tor_process = None
-        log("[INFO] Tor process stopped.")
+        try:
+            tor_process.terminate()
+            tor_process.wait(timeout=5)
+            log("[INFO] Tor subprocess stopped.")
+        except subprocess.TimeoutExpired:
+            log("[WARNING] Tor process did not terminate gracefully, forcing...")
+            tor_process.kill()
+            tor_process.wait()
+            log("[INFO] Tor process was force stopped.")
+        except Exception as e:
+            log(f"[ERROR] Error stopping Tor process: {e}")
+        finally:
+            tor_process = None
+
 
 # ─── Resource path helper ────────────────────────────────────────────────────────
 
@@ -260,40 +356,84 @@ def denoise(img):
             if black_neighbors <= 6:
                 newarr[x, y] = (255, 255, 255)
     return newimg
-
 def solve(image):
+    """
+    Run multiple OCR “strategies” on the same image until we get
+    a 4- or 5-character result. If every strategy fails, grab a new
+    captcha and try again.
+    """
+    # First, denoise the image once up front
     image = denoise(image)
-    text = pytesseract.image_to_string(
-        image.filter(ImageFilter.GaussianBlur(1)).convert("1").filter(ImageFilter.RankFilter(3, 3)),
-        config="-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 7",
-    )
-    text = re.sub(r"[^A-Z]", "", text)
-    log(f"[DEBUG] OCR result: {text}")
-    if len(text) not in (4, 5):
-        log("[INFO] Retrying OCR with different filters...")
-        text = pytesseract.image_to_string(
-            image.filter(ImageFilter.GaussianBlur(2)).filter(ImageFilter.MedianFilter(3)),
-            config="-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8",
-        )
-        text = re.sub(r"[^A-Z]", "", text)
-        log(f"[DEBUG] OCR retry: {text}")
-    if len(text) not in (4, 5):
-        log("[INFO] Final OCR attempt...")
-        text = pytesseract.image_to_string(
-            image,
-            config="-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8",
-        )
-        text = re.sub(r"[^A-Z]", "", text)
-        log(f"[DEBUG] Final OCR: {text}")
-    if len(text) not in (4, 5):
-        log("[WARN] OCR failed, fetching new captcha...")
-        return solve(getcaptcha())
-    return text
+
+    # Define a list of (filter_pipeline, tesseract_config, post_regex) tuples.
+    # Each entry is one “try” with its own preprocessing & psm. 
+    strategies = [
+        # Strategy 1: light blur → convert to 1-bit → rank filter
+        (
+            lambda im: im.filter(ImageFilter.GaussianBlur(1))
+                        .convert("1")
+                        .filter(ImageFilter.RankFilter(3, 3)),
+            "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 7",
+            r"[^A-Z]"
+        ),
+        # Strategy 2: stronger blur → median filter
+        (
+            lambda im: im.filter(ImageFilter.GaussianBlur(2))
+                        .filter(ImageFilter.MedianFilter(3)),
+            "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8",
+            r"[^A-Za-z]"
+        ),
+        # Strategy 3: raw image, no binarization
+        (
+            lambda im: im,
+            "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8",
+            r"[^A-Za-z]"
+        ),
+    ]
+
+    for idx, (pre_fn, config, regex) in enumerate(strategies, start=1):
+        try:
+            processed = pre_fn(image)
+            text = pytesseract.image_to_string(processed, config=config)
+            # strip any non-letters
+            text = re.sub(regex, "", text).upper()
+        except Exception as e:
+            log(f"Strategy {idx} raised an error: {e}")
+            text = ""
+
+        log(f"Strategy {idx} ➔ OCR result: {text}")
+
+        if len(text) in (4, 5):
+            return text  # success!
+
+        log(f"Strategy {idx} failed (got {len(text)} chars).")
+
+    # If we reach here, none of the strategies yielded 4 or 5 chars:
+    log("Captcha failed.")
+    return "Failed"
+
 
 def generate_random_string(length):
     return "".join(random.choice(string.ascii_lowercase) for _ in range(length))
 
-def login():
+def login(change_identity=False):
+    """
+    Handle account creation and login.
+    
+    Args:
+        change_identity: If True and using Tor, change Tor identity before creating account
+    """
+    if change_identity and args.use_tor:
+        log("[INFO] Changing Tor identity before creating new account...")
+        try:
+            with Controller.from_port(port=9051) as controller:
+                controller.authenticate()
+                controller.signal(Signal.NEWNYM)
+                time.sleep(controller.get_newnym_wait())
+                log("[INFO] Tor identity changed.")
+        except Exception as e:
+            log(f"[ERROR] Changing Tor identity: {e}")
+    
     while True:
         try:
             log("[INFO] Fetching captcha...")
@@ -305,6 +445,7 @@ def login():
                 log("[INFO] Showing captcha window...")
                 image.show()
                 captcha = input("Enter captcha: ")
+            
             log("[INFO] Generating temporary email...")
             mailresp = req.get("https://api.guerrillamail.com/ajax.php?f=get_email_address").json()
             email = mailresp["email_addr"]
@@ -320,13 +461,18 @@ def login():
                 email,
             )
             log("[INFO] Activation email sent, waiting...")
-            while True:
+            
+            # Wait for activation email with timeout
+            start_time = time.time()
+            while time.time() - start_time < 120:  # 2 minute timeout
                 check = req.get(
-                    f"https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token={mailresp['sid_token']}"
+                    f"https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token={mailresp['sid_token']}",
+                    timeout=30
                 ).json()
                 if int(check["count"]) > 0:
                     mail = req.get(
-                        f"https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id={check['list'][0]['mail_id']}&sid_token={mailresp['sid_token']}"
+                        f"https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id={check['list'][0]['mail_id']}&sid_token={mailresp['sid_token']}",
+                        timeout=30
                     ).json()
                     match = re.search(r'\?([^">]+)"', mail["mail_body"])
                     if match:
@@ -337,87 +483,105 @@ def login():
                         time.sleep(1)
                         client.login(email, "pegleg1234")
                         log("[INFO] Login successful.")
-                        return
+                        return True  # Success
                     else:
                         log("[ERROR] Activation code not found in email.")
                         break
-                time.sleep(2)
+                time.sleep(5)  # Check every 5 seconds
+            else:
+                log("[ERROR] Timed out waiting for activation email")
+                return False
+                
         except KeyboardInterrupt:
             sys.exit(0)
         except Exception as e:
             log(f"[ERROR] While creating account: {e}")
-            if args.use_tor:
-                log("[INFO] Attempting to change Tor identity...")
-                try:
-                    from stem import Signal
-                    from stem.control import Controller
-                    with Controller.from_port(port=9051) as controller:
-                        controller.authenticate()
-                        controller.signal(Signal.NEWNYM)
-                        time.sleep(controller.get_newnym_wait())
-                        log("[INFO] Tor identity changed.")
-                except Exception as et:
-                    log(f"[ERROR] Changing Tor identity: {et}")
+            # Don't change Tor identity here, just retry with same identity
+            time.sleep(5)  # Short delay before retry
             continue
 
 def createdomain():
     while True:
         try:
+            # Initialize webhook variables
+            hookbool = bool(args.webhook)
+            webhook = args.webhook if hookbool else ""
+            
             image = getcaptcha()
             if args.auto:
-                captcha = solve(image)
-                log(f"[INFO] Captcha solved: {captcha}")
+                capcha = solve(image)
+                log("captcha solved")
             else:
-                log("[INFO] Showing captcha for domain creation...")
+                log("showing captcha")
                 image.show()
-                captcha = input("Enter captcha: ")
+                capcha = input("Enter the captcha code: ")
 
             if args.single_tld:
-                domain_id = non_random_domain_id
+                random_domain_id = non_random_domain_id
             else:
-                domain_id = random.choice(domainlist)
-
+                random_domain_id = random.choice(domainlist)
             if args.subdomains == "random":
-                subname = generate_random_string(10)
+                subdomainy = generate_random_string(10)
             else:
-                subname = random.choice(args.subdomains.split(","))
-
-            client.create_subdomain(captcha, args.type, subname, domain_id, args.ip)
-            tld = args.single_tld or domainnames[domainlist.index(domain_id)]
-            url = f"http://{subname}.{tld}"
-            log(f"[INFO] Created domain: {url}")
-
-            with open(args.outfile, "a") as f:
-                f.write(url + "\n")
-
-            if args.webhook and args.webhook.lower() != "none":
-                log("[INFO] Notifying webhook...")
-                req.post(args.webhook, json={"content": f"Domain created: {url} | IP: {args.ip}"})
-                log("[INFO] Webhook notified.")
-            return
+                subdomainy = random.choice(args.subdomains.split(","))
+                
+            # Use the provided IP or default to 172.93.102.156
+            ip_address = args.ip if hasattr(args, 'ip') and args.ip else "172.93.102.156"
+            client.create_subdomain(capcha, args.type, subdomainy, random_domain_id, ip_address)
+            
+            tld = args.single_tld or domainnames[domainlist.index(random_domain_id)]
+            domain_url = f"http://{subdomainy}.{tld}"
+            
+            log("domain created")
+            log(f"link: {domain_url}")
+            
+            # Save to output file
+            with open(args.outfile, "a") as domainsdb:
+                domainsdb.write(f"\n{domain_url}")
+            
+            # Notify webhook if configured
+            if hookbool:
+                log("notifying webhook")
+                try:
+                    req.post(
+                        webhook,
+                        json={
+                            "content": f"Domain created:\n{domain_url}\nIP: {ip_address}"
+                        },
+                        timeout=10
+                    )
+                    log("webhook notified")
+                except Exception as e:
+                    log(f"Failed to notify webhook: {e}")
         except KeyboardInterrupt:
-            sys.exit(0)
+            # quit
+            sys.exit()
         except Exception as e:
-            log(f"[ERROR] While creating domain: {e}")
+            log("Got error while creating domain: " + repr(e))
             continue
+        else:
+            break
 
 def createlinks(number):
     for i in range(number):
+        # Only change Tor identity when starting a new account (every 5 domains)
         if i % 5 == 0:
             if args.use_tor:
-                log("[INFO] Changing Tor identity before next batch...")
+                log("[INFO] Starting new account batch - changing Tor identity...")
                 try:
-                    from stem import Signal
-                    from stem.control import Controller
                     with Controller.from_port(port=9051) as controller:
                         controller.authenticate()
                         controller.signal(Signal.NEWNYM)
                         time.sleep(controller.get_newnym_wait())
-                        log("[INFO] Tor identity changed.")
+                        log("[INFO] Tor identity changed successfully")
                 except Exception as e:
-                    log(f"[ERROR] Tor identity change failed: {e}")
-                    args.use_tor = False
-            login()
+                    log(f"[ERROR] Failed to change Tor identity: {e}")
+                    log("[WARNING] Continuing with current Tor circuit")
+            
+            # Create a new account with the new identity
+            login(change_identity=False)
+        
+        # Create a domain with the current account
         createdomain()
 
 def init_flow():
@@ -452,11 +616,10 @@ def init_flow():
         client.session.proxies.update({"http": args.proxy, "https": args.proxy})
         log(f"[INFO] Using HTTP proxy: {args.proxy}")
 
-    # Determine IP if not provided
+    # Set default IP if not provided
     if not args.ip:
-        # Simple fallback: pick first from a static list or ask user manually.
-        log("[ERROR] No IP provided. Please enter a valid IP in the UI.")
-        return
+        args.ip = "172.93.102.156"
+        log(f"[INFO] No IP provided. Using default IP: {args.ip}")
 
     # Determine pages to scrape:
     if not args.pages:

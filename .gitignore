@@ -4,3 +4,5 @@ domain92/__pycache__/
 .vscode/
 logs/
 domainlist.txt
+.venv/
+domain92/tor_data/
