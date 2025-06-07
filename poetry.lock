@@ -514,6 +514,20 @@ files = [
 ]
 
 [[package]]
+name = "ttkbootstrap"
+version = "1.12.1"
+description = "A supercharged theme extension for tkinter that enables on-demand modern flat style themes inspired by Bootstrap."
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "ttkbootstrap-1.12.1.tar.gz", hash = "sha256:7f599f8d52ba7f2ef48bd48359962de3682c7131b80b4e26bb9456f3c66dfee9"},
+]
+
+[package.dependencies]
+pillow = ">=9.5"
+
+[[package]]
 name = "urllib3"
 version = "2.4.0"
 description = "HTTP library with thread-safe connection pooling, file post, and more."
@@ -533,5 +547,5 @@ zstd = ["zstandard (>=0.18.0)"]
 
 [metadata]
 lock-version = "2.1"
-python-versions = "^3.12"
-content-hash = "b85bbe829a4acb7d64f9a7cd52b070378b56a44a5c01cbca30d4099e9126369c"
+python-versions = ">=3.9"
+content-hash = "f9ae1ed230bd84eaf9f34fbc9e02e5e0db0f0aa6150062c00355fb6f30037adf"
