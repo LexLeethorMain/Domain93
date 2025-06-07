@@ -34,8 +34,8 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --onefile --name domain93 --add-data "domain93\data;data" --add-data "domain93\tor;tor" domain93\__main__.py
-  
+          pyinstaller --onefile --name domain93 --add-data "domain93\data;data" --add-data "domain93\tor;tor" --hidden-import=art --hidden-import=PIL --hidden-import=requests --hidden-import=freedns --hidden-import=pytesseract --hidden-import=lolpython --hidden-import=stem --hidden-import=ttkbootstrap domain93\__main__.py
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
