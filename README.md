@@ -31,20 +31,10 @@ You just need to solve the CAPTCHA — we’ll handle the rest.
 ## Installation
 
 ### Install with pip
-
+```bash
+pip install domain93
+```
 #### From GitHub
-
 ```bash
 pip install git+https://github.com/LexLeethorMain/domain93
-From PyPI (coming soon)
 
-pip install domain93
-Running the App
-After installing, just run:
-
-python -m domain93
-Or if installed as an executable:
-
-
-domain93
-Make sure you have Python 3.10+ and tkinter installed.
