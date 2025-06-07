@@ -4,20 +4,11 @@ version = "1.2.0"
 description = "A totally rad GUI tool to automate freedns link creation"
 authors = ["Cbass92 <contact@cbass92.org>"]
 readme = "README.md"
-repository = "https://github.com/LexLeethorMain/domain93"  # ← update with your actual forked repo
-
-[project]
-name = "domain93"
-dynamic = [ "version" ]
-license = "GPL-3.0-or-later"
-
-include = [
-    { path = "domain93/data", format = ["sdist", "wheel"] }
-]
+repository = "https://github.com/LexLeethorMain/domain93"
 
 [tool.poetry.dependencies]
-python = "^3.12"
-pillow = "^11.1.0"
+python = ">=3.9"
+pillow = ">=10.0.0" # Use a modern version of Pillow
 requests = "^2.32.3"
 art = "^6.4"
 freedns-client = "^0.1.3"
@@ -25,20 +16,21 @@ pytesseract = "^0.3.13"
 lolpython = "^2.2.0"
 pysocks = "^1.7.1"
 stem = "^1.8.2"
+ttkbootstrap = "^1.10.1" # Explicitly require a compatible version
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-domain93 = "domain93.__main__:init"  # ← if your entry point is still called `init()`
+# Point to a proper main function that will be created in the script
+domain93 = "domain93.__main__:main"
 
-# content below this line added by briefcase convert
-# This project was generated with 0.3.22 using template: https://github.com/beeware/briefcase-template@v0.3.22
+# --- briefcase settings below are mostly unchanged but will benefit from the dependency fixes ---
 [tool.briefcase]
 project_name = "domain93"
 bundle = "com.cbass92.domain93"
-version = "1.1.3"
+version = "1.2.0"
 url = "https://github.com/LexLeethorMain/domain93"
 license.file = "LICENSE"
 author = "Cbass92"
@@ -52,59 +44,14 @@ long_description = """More details about the app should go here.
 sources = [
     "domain93",
 ]
-test_sources = [
-    "tests",
-]
-console_app = true
-
 requires = [
-    "pillow>=11.1.0",
+    'ttkbootstrap>=1.10.1', # Ensure briefcase uses the correct version
+    "pillow>=10.0.0",
     "requests>=2.32.3",
     "art>=6.4",
     "freedns-client>=0.1.3",
     "pytesseract>=0.3.13",
     "lolpython>=2.2.0",
     "pysocks>=1.7.1",
-    "stem"
+    "stem>=1.8.2"
 ]
-test_requires = []
-
-[tool.briefcase.app.domain93.macOS]
-universal_build = true
-requires = []
-
-[tool.briefcase.app.domain93.linux]
-requires = []
-
-[tool.briefcase.app.domain93.linux.system.debian]
-system_requires = []
-system_runtime_requires = []
-
-[tool.briefcase.app.domain93.linux.system.rhel]
-system_requires = []
-system_runtime_requires = []
-
-[tool.briefcase.app.domain93.linux.system.suse]
-system_requires = []
-system_runtime_requires = []
-
-[tool.briefcase.app.domain93.linux.system.arch]
-system_requires = []
-system_runtime_requires = []
-
-[tool.briefcase.app.domain93.linux.flatpak]
-flatpak_runtime = "org.freedesktop.Platform"
-flatpak_runtime_version = "24.08"
-flatpak_sdk = "org.freedesktop.Sdk"
-
-[tool.briefcase.app.domain93.windows]
-requires = []
-
-[tool.briefcase.app.domain93.iOS]
-requires = []
-
-[tool.briefcase.app.domain93.android]
-requires = []
-
-[tool.briefcase.app.domain93.web]
-requires = []

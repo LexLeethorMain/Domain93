@@ -1,3 +1,61 @@
+# ─── Startup & Dependency Check ──────────────────────────────────────────────
+import sys
+import subprocess
+import os
+
+# List of required packages -> (import_name, package_name_for_pip)
+REQUIRED_PACKAGES = [
+    ('art', 'art'),
+    ('PIL', 'Pillow'),
+    ('requests', 'requests'),
+    ('pytesseract', 'pytesseract'),
+    ('lolpython', 'lolpython'),
+    ('stem', 'stem'),
+    ('ttkbootstrap', 'ttkbootstrap')
+]
+
+def check_and_install_dependencies():
+    """
+    Checks if the required Python packages are installed, and if not,
+    attempts to install them using pip.
+    """
+    print("─" * 60)
+    print("Checking for required packages...")
+    
+    for import_name, package_name in REQUIRED_PACKAGES:
+        try:
+            __import__(import_name)
+            print(f"  [✓] {package_name} is already installed.")
+        except ImportError:
+            print(f"  [✗] {package_name} not found. Attempting to install...")
+            try:
+                # Use sys.executable to ensure pip is from the correct Python env
+                # Redirect output to DEVNULL to keep the console clean
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", package_name],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                print(f"      Successfully installed {package_name}.")
+            except subprocess.CalledProcessError:
+                print(f"      [ERROR] Failed to install {package_name}.")
+                print("      Please install it manually using the command:")
+                print(f"      {os.path.basename(sys.executable)} -m pip install {package_name}")
+                sys.exit(1) # Exit if a crucial dependency can't be installed
+            except FileNotFoundError:
+                 print("      [ERROR] 'pip' is not available. Please ensure pip is installed.")
+                 sys.exit(1)
+                 
+    print("All dependencies are satisfied.")
+    print("─" * 60)
+
+# Run the dependency check right at the start
+check_and_install_dependencies()
+
+print("Starting Domain93 GUI...")
+# ───────────────────────────────────────────────────────────────────────────────
+
+
 import os
 import sys
 import time
@@ -373,15 +431,15 @@ def solve(image):
         # Strategy 1: light blur → convert to 1-bit → rank filter
         (
             lambda im: im.filter(ImageFilter.GaussianBlur(1))
-                           .convert("1")
-                           .filter(ImageFilter.RankFilter(3, 3)),
+                            .convert("1")
+                            .filter(ImageFilter.RankFilter(3, 3)),
             "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 7",
             r"[^A-Z]"
         ),
         # Strategy 2: stronger blur → median filter
         (
             lambda im: im.filter(ImageFilter.GaussianBlur(2))
-                           .filter(ImageFilter.MedianFilter(3)),
+                            .filter(ImageFilter.MedianFilter(3)),
             "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8",
             r"[^A-Za-z]"
         ),
@@ -640,181 +698,190 @@ PRESET_IPS = {
 }
 CUSTOM_IP_OPTION = "Enter Custom IP..."
 
-# ─── Build the Tkinter UI ────────────────────────────────────────────────────────
+# Define global UI elements to be accessible in init_flow and main
+ip_entry = None
+num_entry = None
+webhook_entry = None
+proxy_entry = None
+var_use_tor = None
+outfile_entry = None
+type_var = None
+pages_entry = None
+subdomains_entry = None
+var_auto = None
+single_tld_entry = None
+preset_combo = None
 
-root = ttk.Window(themename="cyborg")
-root.title("Domain93 GUI")
-root.geometry("1200x850")
-root.minsize(1000, 750)
+def main():
+    """The main entry point for the application."""
+    global log_widget, ip_entry, num_entry, webhook_entry, proxy_entry, var_use_tor, outfile_entry
+    global type_var, pages_entry, subdomains_entry, var_auto, single_tld_entry, preset_combo
 
-# Create a new custom style for the button
-style = ttk.Style()
-style.configure('large.success.TButton', font=("Segoe UI Variable", 14, "bold"))
+    root = ttk.Window(themename="cyborg")
+    root.title("Domain93 GUI")
+    root.geometry("1200x850")
+    root.minsize(1000, 750)
 
-# --- Main layout frames ---
-# Sidebar container
-sidebar_container = ttk.Frame(root)
-sidebar_container.pack(side="left", fill="y", expand=False)
+    # Create a new custom style for the button
+    style = ttk.Style()
+    style.configure('large.success.TButton', font=("Segoe UI Variable", 14, "bold"))
 
-# Main output frame
-output_frame = ttk.Frame(root, padding=(20, 20, 20, 10))
-output_frame.pack(side="right", fill="both", expand=True)
+    # --- Main layout frames ---
+    # Sidebar container
+    sidebar_container = ttk.Frame(root)
+    sidebar_container.pack(side="left", fill="y", expand=False)
 
-# --- Create a scrollable sidebar ---
-# Canvas for scrolling
-canvas = tk.Canvas(sidebar_container, width=375, highlightthickness=0)
-canvas.pack(side="left", fill="both", expand=True)
+    # Main output frame
+    output_frame = ttk.Frame(root, padding=(20, 20, 20, 10))
+    output_frame.pack(side="right", fill="both", expand=True)
 
-# Scrollbar
-scrollbar = ttk.Scrollbar(sidebar_container, orient="vertical", command=canvas.yview)
-scrollbar.pack(side="right", fill="y")
-canvas.configure(yscrollcommand=scrollbar.set)
+    # --- Create a scrollable sidebar ---
+    # Canvas for scrolling
+    canvas = tk.Canvas(sidebar_container, width=375, highlightthickness=0, bg=style.colors.get('bg'))
+    canvas.pack(side="left", fill="both", expand=True)
 
-# Frame to hold the actual sidebar content (this is what will scroll)
-sidebar = ttk.Frame(canvas, padding=(20, 0))
-sidebar_frame_id = canvas.create_window((0, 0), window=sidebar, anchor="nw")
+    # Scrollbar
+    scrollbar = ttk.Scrollbar(sidebar_container, orient="vertical", command=canvas.yview)
+    scrollbar.pack(side="right", fill="y")
+    canvas.configure(yscrollcommand=scrollbar.set)
 
-def on_sidebar_configure(event):
-    # Update the scroll region to encompass the inner frame
-    canvas.configure(scrollregion=canvas.bbox("all"))
+    # Frame to hold the actual sidebar content (this is what will scroll)
+    sidebar = ttk.Frame(canvas, padding=(20, 0))
+    sidebar_frame_id = canvas.create_window((0, 0), window=sidebar, anchor="nw")
 
-def on_canvas_configure(event):
-    # Update the width of the inner frame to match the canvas
-    canvas.itemconfig(sidebar_frame_id, width=event.width)
+    def on_sidebar_configure(event):
+        # Update the scroll region to encompass the inner frame
+        canvas.configure(scrollregion=canvas.bbox("all"))
 
-sidebar.bind("<Configure>", on_sidebar_configure)
-canvas.bind("<Configure>", on_canvas_configure)
+    def on_canvas_configure(event):
+        # Update the width of the inner frame to match the canvas
+        canvas.itemconfig(sidebar_frame_id, width=event.width)
 
-
-# --- Callback for Preset Selection ---
-def on_preset_selected(event):
-    selected_preset = preset_combo.get()
-
-    ip_entry.delete(0, tk.END)
-
-    if selected_preset == CUSTOM_IP_OPTION:
-        return
-
-    ip_address = PRESET_IPS.get(selected_preset, "")
-    ip_entry.insert(0, ip_address)
-
-# ─── Sidebar widgets (now packed into the 'sidebar' frame) ───────────────────
-
-# Title
-ttk.Label(sidebar, text="Domain93", font=("Segoe UI Variable", 22, "bold")).pack(pady=(10, 5), anchor="w")
-ttk.Label(sidebar, text="Automated Domain Creator", font=("Segoe UI Variable", 10), bootstyle="secondary").pack(anchor="w")
-ttk.Separator(sidebar, bootstyle="secondary").pack(fill="x", pady=20, anchor="w")
-
-# --- Control Groups ---
-# Network & Destination Group
-net_group = ttk.Labelframe(sidebar, text="Network & Destination", padding=15)
-net_group.pack(fill=X, pady=5)
-
-ttk.Label(net_group, text="Select a Preset").pack(fill=X, pady=(0,5))
-preset_combo = ttk.Combobox(
-    net_group,
-    values=[CUSTOM_IP_OPTION] + list(PRESET_IPS.keys()),
-    bootstyle="dark"
-)
-preset_combo.pack(fill=X, pady=(0, 10))
-preset_combo.current(0)
-preset_combo.bind("<<ComboboxSelected>>", on_preset_selected)
-
-ttk.Label(net_group, text="Destination IP Address (or enter custom)").pack(fill=X, pady=(0,5))
-ip_entry = ttk.Entry(net_group, bootstyle="dark")
-ip_entry.pack(fill=X, pady=(0, 10))
-
-ttk.Label(net_group, text="Record Type").pack(fill=X, pady=(0,5))
-type_var = tk.StringVar(value="A")
-type_menu = ttk.OptionMenu(net_group, type_var, "A", "A", "AAAA", "CNAME", "TXT", bootstyle="dark-outline")
-type_menu.pack(fill=X)
-
-# Domain Source Group
-source_group = ttk.Labelframe(sidebar, text="Domain Source", padding=15)
-source_group.pack(fill=X, pady=(10, 5))
-
-ttk.Label(source_group, text="Pages to Scrape (e.g., 1-10)").pack(fill=X, pady=(0,5))
-pages_entry = ttk.Entry(source_group, bootstyle="dark")
-pages_entry.insert(0, "1-10")
-pages_entry.pack(fill=X, pady=(0, 10))
-
-ttk.Label(source_group, text="Subdomains (comma-sep or 'random')").pack(fill=X, pady=(0,5))
-subdomains_entry = ttk.Entry(source_group, bootstyle="dark")
-subdomains_entry.insert(0, "random")
-subdomains_entry.pack(fill=X, pady=(0, 10))
-
-ttk.Label(source_group, text="Specific TLD (optional, overrides Pages)").pack(fill=X, pady=(0,5))
-single_tld_entry = ttk.Entry(source_group, bootstyle="dark")
-single_tld_entry.pack(fill=X)
-
-# Advanced Group
-adv_group = ttk.Labelframe(sidebar, text="Advanced", padding=15)
-adv_group.pack(fill=X, pady=(10, 5))
-var_use_tor = tk.IntVar()
-ttk.Checkbutton(adv_group, text="Use Tor for Anonymity", variable=var_use_tor).pack(fill=X, pady=5)
-var_auto = tk.IntVar(value=1) # Set to 1 to enable by default
-ttk.Checkbutton(adv_group, text="Attempt to Auto-Solve Captchas", variable=var_auto).pack(fill=X, pady=(5,10))
-ttk.Label(adv_group, text="HTTP Proxy (optional, e.g. http://ip:port)").pack(fill=X, pady=(5,5))
-proxy_entry = ttk.Entry(adv_group, bootstyle="dark")
-proxy_entry.pack(fill=X)
-
-# --- Spacer to push button to the bottom ---
-# The scrollable layout makes this less critical, but it can still provide visual spacing if desired.
-# spacer = ttk.Frame(sidebar)
-# spacer.pack(fill=Y, expand=Y)
-
-# --- Output & Action Group ---
-ttk.Separator(sidebar, bootstyle="secondary").pack(fill="x", pady=10, anchor="s")
-
-out_group = ttk.Frame(sidebar)
-out_group.pack(fill=X, anchor='s')
-ttk.Label(out_group, text="Number of Domains to Create (optional)").pack(fill=X, pady=(0,5))
-num_entry = ttk.Entry(out_group, bootstyle="dark")
-num_entry.pack(fill=X, pady=(0, 10))
-
-ttk.Label(out_group, text="Output File Name").pack(fill=X, pady=(0,5))
-outfile_entry = ttk.Entry(out_group, bootstyle="dark")
-outfile_entry.insert(0, "domainlist.txt")
-outfile_entry.pack(fill=X, pady=(0, 10))
-
-ttk.Label(out_group, text="Webhook URL (optional)").pack(fill=X, pady=(0,5))
-webhook_entry = ttk.Entry(out_group, bootstyle="dark")
-webhook_entry.pack(fill=X, pady=(0, 10))
-
-# Start button
-start_btn = ttk.Button(
-    sidebar,
-    text="🚀  Start Process",
-    command=lambda: threading.Thread(target=init_flow, daemon=True).start(),
-    style='large.success.TButton' # Use the custom style
-)
-start_btn.pack(fill="x", ipady=12, pady=(15, 10), anchor="s")
-
-# --- Credit in corner ---
-credit_frame = ttk.Frame(sidebar)
-credit_frame.pack(fill=X, anchor='s', pady=(0, 10))
-ttk.Label(credit_frame, text="Original by Cbass92", font=("Segoe UI Variable", 8), bootstyle="secondary").pack(side="left", padx=5)
+    sidebar.bind("<Configure>", on_sidebar_configure)
+    canvas.bind("<Configure>", on_canvas_configure)
 
 
-# ─── Output (ScrolledText) ──────────────────────────────────────────────────────
+    # --- Callback for Preset Selection ---
+    def on_preset_selected(event):
+        selected_preset = preset_combo.get()
+        ip_entry.delete(0, tk.END)
+        if selected_preset == CUSTOM_IP_OPTION:
+            return
+        ip_address = PRESET_IPS.get(selected_preset, "")
+        ip_entry.insert(0, ip_address)
 
-log_widget = ScrolledText(output_frame, bg="#1e1e1e", fg="#00de7a", relief="flat",
-                          insertbackground="white", font=("Consolas", 11), wrap="word",
-                          bd=0, highlightthickness=0, selectbackground="#0078D7")
-log_widget.pack(fill="both", expand=True)
-log_widget.configure(state="disabled")
+    # ─── Sidebar widgets (now packed into the 'sidebar' frame) ───────────────────
 
-# ─── Quit handling ───────────────────────────────────────────────────────────────
+    # Title
+    ttk.Label(sidebar, text="Domain93", font=("Segoe UI Variable", 22, "bold")).pack(pady=(10, 5), anchor="w")
+    ttk.Label(sidebar, text="Automated Domain Creator", font=("Segoe UI Variable", 10), bootstyle="secondary").pack(anchor="w")
+    ttk.Separator(sidebar, bootstyle="secondary").pack(fill="x", pady=20, anchor="w")
 
-def on_closing():
-    log("[INFO] Shutting down...")
-    stop_tor()
-    root.destroy()
+    # --- Control Groups ---
+    # Network & Destination Group
+    net_group = ttk.Labelframe(sidebar, text="Network & Destination", padding=15)
+    net_group.pack(fill='x', pady=5)
 
-root.protocol("WM_DELETE_WINDOW", on_closing)
+    ttk.Label(net_group, text="Select a Preset").pack(fill='x', pady=(0,5))
+    preset_combo = ttk.Combobox(
+        net_group,
+        values=[CUSTOM_IP_OPTION] + list(PRESET_IPS.keys()),
+        bootstyle="dark"
+    )
+    preset_combo.pack(fill='x', pady=(0, 10))
+    preset_combo.current(0)
+    preset_combo.bind("<<ComboboxSelected>>", on_preset_selected)
 
-# Initial log message
-if __name__ == "__main__":
+    ttk.Label(net_group, text="Destination IP Address (or enter custom)").pack(fill='x', pady=(0,5))
+    ip_entry = ttk.Entry(net_group, bootstyle="dark")
+    ip_entry.pack(fill='x', pady=(0, 10))
+
+    ttk.Label(net_group, text="Record Type").pack(fill='x', pady=(0,5))
+    type_var = tk.StringVar(value="A")
+    type_menu = ttk.OptionMenu(net_group, type_var, "A", "A", "AAAA", "CNAME", "TXT", bootstyle="dark-outline")
+    type_menu.pack(fill='x')
+
+    # Domain Source Group
+    source_group = ttk.Labelframe(sidebar, text="Domain Source", padding=15)
+    source_group.pack(fill='x', pady=(10, 5))
+
+    ttk.Label(source_group, text="Pages to Scrape (e.g., 1-10)").pack(fill='x', pady=(0,5))
+    pages_entry = ttk.Entry(source_group, bootstyle="dark")
+    pages_entry.insert(0, "1-10")
+    pages_entry.pack(fill='x', pady=(0, 10))
+
+    ttk.Label(source_group, text="Subdomains (comma-sep or 'random')").pack(fill='x', pady=(0,5))
+    subdomains_entry = ttk.Entry(source_group, bootstyle="dark")
+    subdomains_entry.insert(0, "random")
+    subdomains_entry.pack(fill='x', pady=(0, 10))
+
+    ttk.Label(source_group, text="Specific TLD (optional, overrides Pages)").pack(fill='x', pady=(0,5))
+    single_tld_entry = ttk.Entry(source_group, bootstyle="dark")
+    single_tld_entry.pack(fill='x')
+
+    # Advanced Group
+    adv_group = ttk.Labelframe(sidebar, text="Advanced", padding=15)
+    adv_group.pack(fill='x', pady=(10, 5))
+    var_use_tor = tk.IntVar()
+    ttk.Checkbutton(adv_group, text="Use Tor for Anonymity", variable=var_use_tor).pack(fill='x', pady=5)
+    var_auto = tk.IntVar(value=1) # Set to 1 to enable by default
+    ttk.Checkbutton(adv_group, text="Attempt to Auto-Solve Captchas", variable=var_auto).pack(fill='x', pady=(5,10))
+    ttk.Label(adv_group, text="HTTP Proxy (optional, e.g. http://ip:port)").pack(fill='x', pady=(5,5))
+    proxy_entry = ttk.Entry(adv_group, bootstyle="dark")
+    proxy_entry.pack(fill='x')
+
+    # --- Output & Action Group ---
+    ttk.Separator(sidebar, bootstyle="secondary").pack(fill="x", pady=10, anchor="s")
+
+    out_group = ttk.Frame(sidebar)
+    out_group.pack(fill='x', anchor='s')
+    ttk.Label(out_group, text="Number of Domains to Create (optional)").pack(fill='x', pady=(0,5))
+    num_entry = ttk.Entry(out_group, bootstyle="dark")
+    num_entry.pack(fill='x', pady=(0, 10))
+
+    ttk.Label(out_group, text="Output File Name").pack(fill='x', pady=(0,5))
+    outfile_entry = ttk.Entry(out_group, bootstyle="dark")
+    outfile_entry.insert(0, "domainlist.txt")
+    outfile_entry.pack(fill='x', pady=(0, 10))
+
+    ttk.Label(out_group, text="Webhook URL (optional)").pack(fill='x', pady=(0,5))
+    webhook_entry = ttk.Entry(out_group, bootstyle="dark")
+    webhook_entry.pack(fill='x', pady=(0, 10))
+
+    # Start button
+    start_btn = ttk.Button(
+        sidebar,
+        text="🚀  Start Process",
+        command=lambda: threading.Thread(target=init_flow, daemon=True).start(),
+        style='large.success.TButton' # Use the custom style
+    )
+    start_btn.pack(fill="x", ipady=12, pady=(15, 10), anchor="s")
+
+    # --- Credit in corner ---
+    credit_frame = ttk.Frame(sidebar)
+    credit_frame.pack(fill='x', anchor='s', pady=(0, 10))
+    ttk.Label(credit_frame, text="Original by Cbass92", font=("Segoe UI Variable", 8), bootstyle="secondary").pack(side="left", padx=5)
+
+
+    # ─── Output (ScrolledText) ──────────────────────────────────────────────────────
+    log_widget = ScrolledText(output_frame, bg="#1e1e1e", fg="#00de7a", relief="flat",
+                              insertbackground="white", font=("Consolas", 11), wrap="word",
+                              bd=0, highlightthickness=0, selectbackground="#0078D7")
+    log_widget.pack(fill="both", expand=True)
+    log_widget.configure(state="disabled")
+
+    # ─── Quit handling ───────────────────────────────────────────────────────────────
+    def on_closing():
+        log("[INFO] Shutting down...")
+        stop_tor()
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+
+    # Initial log message
     log(text2art("domain93"))
     log("Fork of Domain92 made with ❤️ by LexLeethor & Polaroid.Camera")
     root.mainloop()
+
+if __name__ == "__main__":
+    main()
