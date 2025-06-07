@@ -37,21 +37,14 @@ You just need to solve the CAPTCHA — we’ll handle the rest.
 ```bash
 pip install git+https://github.com/LexLeethorMain/domain93
 From PyPI (coming soon)
-bash
-Copy
-Edit
+
 pip install domain93
 Running the App
 After installing, just run:
 
-bash
-Copy
-Edit
 python -m domain93
 Or if installed as an executable:
 
-bash
-Copy
-Edit
+
 domain93
 Make sure you have Python 3.10+ and tkinter installed.
