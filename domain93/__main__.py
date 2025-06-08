@@ -689,7 +689,7 @@ PRESET_IPS = {
     "Astroid": "5.161.68.227", "Shadow": "104.243.38.18", "Space": "104.243.38.145",
     "Szvy Central": "152.53.38.100", "Croxy Proxy 1": "157.230.79.247",
     "Croxy Proxy 2": "143.244.204.138", "Croxy Proxy 3": "157.230.113.153",
-    "Seraph": "15.235.166.92", "Hdun": "109.204.188.135", "Selenite": "65.109.112.222"
+    "Seraph": "15.235.166.92", "Hdun": "109.204.188.135", "Selenite": "65.109.112.222", "InputDelay (Requires Mass Link Register)": "172.93.102.156"
 }
 CUSTOM_IP_OPTION = "Enter Custom IP..."
 
