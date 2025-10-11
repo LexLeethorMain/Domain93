@@ -1,3 +1,9 @@
+import platform
+
+# Patch mac_ver to ensure any check thinks we're on at least 26.0.0
+_real_mac_ver = platform.mac_ver
+platform.mac_ver = lambda: ('26.0.1', ('', '', ''), 'arm64')
+
 # ─── Startup & Dependency Check ──────────────────────────────────────────────
 import sys
 import subprocess
