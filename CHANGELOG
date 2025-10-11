@@ -1,1 +1,2 @@
-This file was necessary to get the buildy thing to stop complaining
+1.2.1
+Fixed MacOS error showing issues with MacOS 26 or higher.
