@@ -22,7 +22,7 @@ It uses:
   - [Installation](#installation)
     - [Install with pip](#install-with-pip)
       - [From GitHub](#from-github)
-      - [From PyPI (coming soon)](#from-pypi-coming-soon)
+      - [From PyPI (RELEASED)](#from-pypi-coming-soon)
   - [Running the App](#running-the-app)
   - [Screenshots](#screenshots)
   - [License](#license)
